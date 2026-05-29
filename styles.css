@@ -1,0 +1,210 @@
+/* ─── Theme tokens ─────────────────────────────────────────── */
+
+:root {
+  /* Light mode (default) */
+  --bg: #ffffff;
+  --text: #111111;
+  --text-muted: #666666;
+  --border: #e5e5e5;
+  --accent: #047857;
+  --button-bg: #f5f5f5;
+  --button-hover: #e5e5e5;
+}
+
+[data-theme="dark"] {
+  --bg: #0a0a0a;
+  --text: #f5f5f5;
+  --text-muted: #999999;
+  --border: #222222;
+  --accent: #34d399;
+  --button-bg: #1a1a1a;
+  --button-hover: #2a2a2a;
+}
+
+/* System preference applies only when user hasn't manually overridden */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #0a0a0a;
+    --text: #f5f5f5;
+    --text-muted: #999999;
+    --border: #222222;
+    --accent: #34d399;
+    --button-bg: #1a1a1a;
+    --button-hover: #2a2a2a;
+  }
+}
+
+/* ─── Reset + base ─────────────────────────────────────────── */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  /* System font stack — no Google Fonts, no third-party tracking */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
+               Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem;
+  min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ─── Header ────────────────────────────────────────────────── */
+
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 2rem;
+}
+
+h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+#theme-toggle {
+  background: var(--button-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 1.125rem;
+  transition: background-color 0.15s ease;
+}
+
+#theme-toggle:hover {
+  background: var(--button-hover);
+}
+
+#theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ─── Current conditions ───────────────────────────────────── */
+
+#current {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+#current .location {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-bottom: 0.5rem;
+}
+
+#current .temp {
+  font-size: 3.5rem;
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.5rem;
+}
+
+#current .condition {
+  font-size: 1rem;
+  color: var(--text-muted);
+}
+
+#current .loading {
+  font-size: 1rem;
+  color: var(--text-muted);
+  padding: 1rem 0;
+}
+
+/* ─── Forecast ─────────────────────────────────────────────── */
+
+#forecast h2 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+}
+
+#forecast-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+#forecast-list li {
+  display: grid;
+  grid-template-columns: minmax(6rem, auto) 1fr auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+}
+
+#forecast-list .day {
+  font-weight: 500;
+}
+
+#forecast-list .condition {
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+}
+
+#forecast-list .temp {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Status (offline indicator, etc) ──────────────────────── */
+
+#status {
+  margin-top: 1rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ─── Footer ───────────────────────────────────────────────── */
+
+footer {
+  margin-top: 3rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+footer p {
+  margin-bottom: 0.25rem;
+}
+
+footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+footer a:hover {
+  text-decoration: underline;
+}
