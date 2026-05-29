@@ -1,12 +1,23 @@
 /* ─── Just the Weather ─────────────────────────────────────────────
- * Vanilla JS PWA. Fetches NWS forecast for Madison, WI.
+ * Vanilla JS PWA. Fetches NWS forecast for the user's location
+ * (or NYC if geolocation denied/unavailable).
  * No dependencies, no tracking, no nonsense.
  * ──────────────────────────────────────────────────────────────── */
 
-const NWS_FORECAST_URL = 'https://api.weather.gov/gridpoints/MKX/33,68/forecast';
+const NWS_POINTS = (lat, lon) =>
+  `https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`;
+
+const FALLBACK = {
+  // NYC gridpoint (OKX/34,44 — Manhattan area). Used when geolocation is
+  // unavailable, denied, or fails the NWS lookup (e.g., user outside the US).
+  forecastUrl: 'https://api.weather.gov/gridpoints/OKX/34,44/forecast',
+  locationName: 'New York, NY',
+};
 
 const STORAGE_KEYS = {
   theme: 'theme',
+  forecastUrl: 'forecast-url',
+  locationName: 'location-name',
   forecast: 'forecast-cache',
   fetchedAt: 'forecast-fetched-at',
 };
@@ -14,7 +25,6 @@ const STORAGE_KEYS = {
 const THEME_STATES = ['system', 'light', 'dark'];
 const THEME_ICONS = { system: '⚙', light: '☀', dark: '☾' };
 
-// DOM refs (assigned after DOMContentLoaded since script is deferred but still safest)
 const $current = document.getElementById('current');
 const $forecastList = document.getElementById('forecast-list');
 const $status = document.getElementById('status');
@@ -48,53 +58,106 @@ function cycleTheme() {
 $themeToggle.addEventListener('click', cycleTheme);
 applyTheme(getThemeState());
 
+// ─── Location resolution ─────────────────────────────────────────
+
+async function getBrowserPosition() {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      timeout: 10000,
+      maximumAge: 60 * 60 * 1000, // accept positions up to 1hr old
+    });
+  });
+}
+
+async function resolveLocation() {
+  // 1. Use cached forecast URL if we have one (gridpoints are stable).
+  const cachedUrl = localStorage.getItem(STORAGE_KEYS.forecastUrl);
+  const cachedName = localStorage.getItem(STORAGE_KEYS.locationName);
+  if (cachedUrl && cachedName) {
+    return { forecastUrl: cachedUrl, locationName: cachedName };
+  }
+
+  // 2. Try the Geolocation API.
+  if (!('geolocation' in navigator)) {
+    return FALLBACK;
+  }
+
+  try {
+    const position = await getBrowserPosition();
+    const { latitude, longitude } = position.coords;
+
+    const res = await fetch(NWS_POINTS(latitude, longitude), {
+      headers: { 'Accept': 'application/geo+json' },
+    });
+    if (!res.ok) throw new Error(`Points API HTTP ${res.status}`);
+    const points = await res.json();
+
+    const forecastUrl = points.properties.forecast;
+    const loc = points.properties.relativeLocation.properties;
+    const locationName = `${loc.city}, ${loc.state}`;
+
+    // Cache so we don't re-prompt + re-fetch the gridpoint next time.
+    localStorage.setItem(STORAGE_KEYS.forecastUrl, forecastUrl);
+    localStorage.setItem(STORAGE_KEYS.locationName, locationName);
+
+    return { forecastUrl, locationName };
+  } catch (err) {
+    // Permission denied, timeout, outside US, etc. — fall back gracefully.
+    console.warn('Location resolution failed; using fallback:', err);
+    return FALLBACK;
+  }
+}
+
 // ─── Forecast fetch + render ──────────────────────────────────────
 
-async function fetchForecast() {
+async function fetchForecast(forecastUrl, locationName) {
   try {
-    const res = await fetch(NWS_FORECAST_URL, {
+    const res = await fetch(forecastUrl, {
       headers: { 'Accept': 'application/geo+json' },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     const periods = data.properties.periods;
 
-    // Cache for offline fallback
     localStorage.setItem(STORAGE_KEYS.forecast, JSON.stringify(periods));
     localStorage.setItem(STORAGE_KEYS.fetchedAt, new Date().toISOString());
 
-    render(periods, { fromCache: false });
+    render(periods, locationName, { fromCache: false });
   } catch (err) {
     console.warn('Live fetch failed; trying cache:', err);
     const cached = localStorage.getItem(STORAGE_KEYS.forecast);
     if (cached) {
-      render(JSON.parse(cached), { fromCache: true });
+      render(JSON.parse(cached), locationName, { fromCache: true });
     } else {
       renderError();
     }
   }
 }
 
-function render(periods, { fromCache }) {
-  // Current = the first (most current) period
+function render(periods, locationName, { fromCache }) {
   const current = periods[0];
   $current.innerHTML = `
-    <div class="location">Madison, WI</div>
+    <div class="location">
+      <span>${escapeHtml(locationName)}</span>
+      <button class="update-location" type="button">update</button>
+    </div>
     <div class="temp">${current.temperature}°${current.temperatureUnit}</div>
     <div class="condition">${escapeHtml(current.shortForecast)} — ${escapeHtml(current.name)}</div>
   `;
 
-  // 7-day forecast: filter to daytime periods and take the next 7
-  const days = periods.filter(p => p.isDaytime).slice(0, 7);
-  $forecastList.innerHTML = days.map(day => `
+  const days = periods.filter((p) => p.isDaytime).slice(0, 7);
+  $forecastList.innerHTML = days
+    .map(
+      (day) => `
     <li>
       <span class="day">${escapeHtml(day.name)}</span>
       <span class="condition">${escapeHtml(day.shortForecast)}</span>
       <span class="temp">${day.temperature}°</span>
     </li>
-  `).join('');
+  `
+    )
+    .join('');
 
-  // Status line
   const fetchedAt = localStorage.getItem(STORAGE_KEYS.fetchedAt);
   if (fromCache) {
     $status.textContent = `Offline — showing cached data from ${formatRelative(fetchedAt)}.`;
@@ -131,19 +194,39 @@ function formatRelative(iso) {
 }
 
 function escapeHtml(str) {
-  // Defensive against any weird strings from the API ending up in innerHTML
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
 }
 
+// ─── Manual location refresh ──────────────────────────────────────
+
+async function updateLocation() {
+  localStorage.removeItem(STORAGE_KEYS.forecastUrl);
+  localStorage.removeItem(STORAGE_KEYS.locationName);
+  $current.innerHTML = `<p class="loading">Updating location…</p>`;
+  $forecastList.innerHTML = '';
+  $status.hidden = true;
+  const { forecastUrl, locationName } = await resolveLocation();
+  await fetchForecast(forecastUrl, locationName);
+}
+
+// Event delegation — the button is re-rendered inside #current each fetch.
+$current.addEventListener('click', (event) => {
+  if (event.target.closest('.update-location')) {
+    updateLocation();
+  }
+});
+
 // ─── Boot ─────────────────────────────────────────────────────────
 
-fetchForecast();
+(async () => {
+  const { forecastUrl, locationName } = await resolveLocation();
+  fetchForecast(forecastUrl, locationName);
+})();
 
-// Register the service worker (enables install + offline fallback)
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/service-worker.js').catch(err => {
+  navigator.serviceWorker.register('/service-worker.js').catch((err) => {
     console.warn('Service worker registration failed:', err);
   });
 }

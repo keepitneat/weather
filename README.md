@@ -1,10 +1,12 @@
 # Just the Weather
 
-A no-frills weather PWA for Madison, WI. Part of the [Keep It Neat](https://keepitneat.app) series.
+A no-frills weather PWA for anywhere in the US. Part of the [Keep It Neat](https://keepitneat.app) series.
 
 ## What it is
 
-Current conditions and a 7-day forecast. Pulled from the [NWS API](https://www.weather.gov/documentation/services-web-api).
+Current conditions and a 7-day forecast for your location. Pulled from the [NWS API](https://www.weather.gov/documentation/services-web-api), so US-only — sorry, rest of the world.
+
+Asks for your location once, caches the grid point, and falls back to NYC if you'd rather not share. Tap "update" next to the city name to re-prompt (handy when you're traveling).
 
 That's the whole app.
 
