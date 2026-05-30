@@ -7,7 +7,7 @@
  * and redeploy. Old caches get cleaned up automatically on activate.
  * ──────────────────────────────────────────────────────────────── */
 
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';
 const CACHE_NAME = `just-the-weather-${CACHE_VERSION}`;
 
 const APP_SHELL = [
@@ -15,6 +15,7 @@ const APP_SHELL = [
   '/index.html',
   '/styles.css',
   '/app.js',
+  '/icons.js',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
