@@ -153,6 +153,13 @@ h1 {
   color: var(--text-muted);
 }
 
+#current .observed-at {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-top: 0.25rem;
+}
+
 #current .loading {
   font-size: 1rem;
   color: var(--text-muted);
@@ -167,23 +174,24 @@ h1 {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
+  margin-top: 1.5rem;
   margin-bottom: 1rem;
 }
 
-#forecast-list {
+.forecast-list {
   list-style: none;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
 }
 
-#forecast-list > li {
+.forecast-list > li {
   border: 1px solid var(--border);
   border-radius: 0.5rem;
   overflow: hidden;
 }
 
-#forecast-list details > summary {
+.forecast-list details > summary {
   display: grid;
   grid-template-columns: minmax(6rem, auto) 1fr auto auto;
   gap: 1rem;
@@ -194,11 +202,11 @@ h1 {
 }
 
 /* Hide default disclosure marker across browsers */
-#forecast-list details > summary::-webkit-details-marker {
+.forecast-list details > summary::-webkit-details-marker {
   display: none;
 }
 
-#forecast-list details > summary::after {
+.forecast-list details > summary::after {
   content: '›';
   font-size: 1.25rem;
   color: var(--text-muted);
@@ -206,19 +214,19 @@ h1 {
   transition: transform 0.15s ease;
 }
 
-#forecast-list details[open] > summary::after {
+.forecast-list details[open] > summary::after {
   transform: rotate(90deg);
 }
 
-#forecast-list details > summary:hover {
+.forecast-list details > summary:hover {
   background: var(--button-bg);
 }
 
-#forecast-list .day {
+.forecast-list .day {
   font-weight: 500;
 }
 
-#forecast-list .condition {
+.forecast-list .condition {
   color: var(--text-muted);
   font-size: 0.9375rem;
   display: inline-flex;
@@ -244,38 +252,40 @@ h1 {
   height: 1.25em;
 }
 
-#forecast-list .temp {
+.forecast-list .temp {
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
-#forecast-list .hourly {
+.forecast-list .hourly {
   list-style: none;
   padding: 0;
   margin: 0;
   border-top: 1px solid var(--border);
 }
 
-#forecast-list .hourly > li {
+.forecast-list .hourly > li {
   display: grid;
-  grid-template-columns: 4rem 1fr auto;
+  /* Match the summary's first column (minmax(6rem, auto)) so the condition
+     icon in each hourly row lines up with the daily summary's icon. */
+  grid-template-columns: minmax(6rem, auto) 1fr auto;
   gap: 1rem;
   align-items: center;
   padding: 0.5rem 1rem;
   font-size: 0.875rem;
 }
 
-#forecast-list .hourly > li:nth-child(even) {
+.forecast-list .hourly > li:nth-child(even) {
   background: var(--button-bg);
 }
 
-#forecast-list .hourly .hour {
+.forecast-list .hourly .hour {
   font-weight: 500;
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
 
-#forecast-list .hourly-empty {
+.forecast-list .hourly-empty {
   padding: 0.75rem 1rem;
   color: var(--text-muted);
   font-size: 0.875rem;
