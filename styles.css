@@ -153,6 +153,21 @@ h1 {
   color: var(--text-muted);
 }
 
+#current .period-forecast {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+}
+
+#current .observed-at {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-top: 0.25rem;
+}
+
 #current .loading {
   font-size: 1rem;
   color: var(--text-muted);

@@ -10,10 +10,12 @@ const NWS_POINTS = (lat, lon) =>
   `https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`;
 
 const FALLBACK = {
-  // NYC gridpoint (OKX/34,44 — Manhattan area). Used when geolocation is
-  // unavailable, denied, or fails the NWS lookup (e.g., user outside the US).
+  // NYC gridpoint (OKX/34,44 — Manhattan area) + KNYC observation station
+  // (Central Park). Used when geolocation is unavailable, denied, or fails
+  // the NWS lookup (e.g., user outside the US).
   forecastUrl: 'https://api.weather.gov/gridpoints/OKX/34,44/forecast',
   hourlyUrl: 'https://api.weather.gov/gridpoints/OKX/34,44/forecast/hourly',
+  observationUrl: 'https://api.weather.gov/stations/KNYC/observations/latest',
   locationName: 'New York, NY',
 };
 
@@ -21,11 +23,16 @@ const STORAGE_KEYS = {
   theme: 'theme',
   forecastUrl: 'forecast-url',
   hourlyUrl: 'forecast-hourly-url',
+  observationUrl: 'observation-url',
   locationName: 'location-name',
   forecast: 'forecast-cache',
   hourly: 'forecast-hourly-cache',
+  observation: 'observation-cache',
   fetchedAt: 'forecast-fetched-at',
 };
+
+// Observations older than this fall back to the first hourly forecast period.
+const STALE_OBSERVATION_MS = 90 * 60 * 1000;
 
 const THEME_STATES = ['system', 'light', 'dark'];
 const THEME_ICONS = { system: '⚙', light: '☀', dark: '☾' };
@@ -77,11 +84,15 @@ async function getBrowserPosition() {
 async function resolveLocation() {
   const cachedForecast = localStorage.getItem(STORAGE_KEYS.forecastUrl);
   const cachedHourly = localStorage.getItem(STORAGE_KEYS.hourlyUrl);
+  const cachedObservation = localStorage.getItem(STORAGE_KEYS.observationUrl);
   const cachedName = localStorage.getItem(STORAGE_KEYS.locationName);
+  // observationUrl is optional — null on upgrade from v2 or when the
+  // nearest-station lookup failed. currentConditions() handles its absence.
   if (cachedForecast && cachedHourly && cachedName) {
     return {
       forecastUrl: cachedForecast,
       hourlyUrl: cachedHourly,
+      observationUrl: cachedObservation || null,
       locationName: cachedName,
     };
   }
@@ -102,14 +113,37 @@ async function resolveLocation() {
 
     const forecastUrl = points.properties.forecast;
     const hourlyUrl = points.properties.forecastHourly;
+    const stationsUrl = points.properties.observationStations;
     const loc = points.properties.relativeLocation.properties;
     const locationName = `${loc.city}, ${loc.state}`;
 
+    // Resolve the nearest observation station for current-conditions data.
+    // If this fails, we degrade gracefully — current conditions fall back
+    // to the first hourly forecast period.
+    let observationUrl = null;
+    try {
+      const stationsRes = await fetch(stationsUrl, {
+        headers: { 'Accept': 'application/geo+json' },
+      });
+      if (stationsRes.ok) {
+        const stations = await stationsRes.json();
+        const stationId = stations.features?.[0]?.properties?.stationIdentifier;
+        if (stationId) {
+          observationUrl = `https://api.weather.gov/stations/${stationId}/observations/latest`;
+        }
+      }
+    } catch (stationErr) {
+      console.warn('Station resolution failed; observations will fall back to hourly:', stationErr);
+    }
+
     localStorage.setItem(STORAGE_KEYS.forecastUrl, forecastUrl);
     localStorage.setItem(STORAGE_KEYS.hourlyUrl, hourlyUrl);
+    if (observationUrl) {
+      localStorage.setItem(STORAGE_KEYS.observationUrl, observationUrl);
+    }
     localStorage.setItem(STORAGE_KEYS.locationName, locationName);
 
-    return { forecastUrl, hourlyUrl, locationName };
+    return { forecastUrl, hourlyUrl, observationUrl, locationName };
   } catch (err) {
     console.warn('Location resolution failed; using fallback:', err);
     return FALLBACK;
@@ -118,11 +152,19 @@ async function resolveLocation() {
 
 // ─── Forecast fetch + render ──────────────────────────────────────
 
-async function fetchForecast(forecastUrl, hourlyUrl, locationName) {
+async function fetchForecast(forecastUrl, hourlyUrl, observationUrl, locationName) {
   try {
-    const [forecastRes, hourlyRes] = await Promise.all([
-      fetch(forecastUrl, { headers: { 'Accept': 'application/geo+json' } }),
-      fetch(hourlyUrl, { headers: { 'Accept': 'application/geo+json' } }),
+    // Observation fetch is best-effort — if it fails, we still render
+    // forecast with the first hourly period as current conditions.
+    const fetchOpts = { headers: { 'Accept': 'application/geo+json' } };
+    const observationPromise = observationUrl
+      ? fetch(observationUrl, fetchOpts).then((res) => (res.ok ? res.json() : null)).catch(() => null)
+      : Promise.resolve(null);
+
+    const [forecastRes, hourlyRes, observationData] = await Promise.all([
+      fetch(forecastUrl, fetchOpts),
+      fetch(hourlyUrl, fetchOpts),
+      observationPromise,
     ]);
     if (!forecastRes.ok) throw new Error(`Forecast HTTP ${forecastRes.status}`);
     if (!hourlyRes.ok) throw new Error(`Hourly HTTP ${hourlyRes.status}`);
@@ -130,20 +172,26 @@ async function fetchForecast(forecastUrl, hourlyUrl, locationName) {
     const hourlyData = await hourlyRes.json();
     const periods = forecastData.properties.periods;
     const hourlyPeriods = hourlyData.properties.periods;
+    const observation = observationData?.properties ?? null;
 
     localStorage.setItem(STORAGE_KEYS.forecast, JSON.stringify(periods));
     localStorage.setItem(STORAGE_KEYS.hourly, JSON.stringify(hourlyPeriods));
+    if (observation) {
+      localStorage.setItem(STORAGE_KEYS.observation, JSON.stringify(observation));
+    }
     localStorage.setItem(STORAGE_KEYS.fetchedAt, new Date().toISOString());
 
-    render(periods, hourlyPeriods, locationName, { fromCache: false });
+    render(periods, hourlyPeriods, observation, locationName, { fromCache: false });
   } catch (err) {
     console.warn('Live fetch failed; trying cache:', err);
     const cachedForecast = localStorage.getItem(STORAGE_KEYS.forecast);
     const cachedHourly = localStorage.getItem(STORAGE_KEYS.hourly);
+    const cachedObservation = localStorage.getItem(STORAGE_KEYS.observation);
     if (cachedForecast && cachedHourly) {
       render(
         JSON.parse(cachedForecast),
         JSON.parse(cachedHourly),
+        cachedObservation ? JSON.parse(cachedObservation) : null,
         locationName,
         { fromCache: true }
       );
@@ -153,15 +201,22 @@ async function fetchForecast(forecastUrl, hourlyUrl, locationName) {
   }
 }
 
-function render(periods, hourlyPeriods, locationName, { fromCache }) {
-  const current = periods[0];
+function render(periods, hourlyPeriods, observation, locationName, { fromCache }) {
+  const period = periods[0];
+  const conditions = currentConditions(observation, hourlyPeriods);
+  const periodLine = `${escapeHtml(period.name)}: ${escapeHtml(period.shortForecast)}, ${period.temperature}°${period.temperatureUnit}`;
+  const observedLine = conditions.fromObservation
+    ? `Observed ${formatRelative(conditions.observedAt)}`
+    : 'Latest forecast (no station data)';
   $current.innerHTML = `
     <div class="location">
       <span>${escapeHtml(locationName)}</span>
       <button class="update-location" type="button">update</button>
     </div>
-    <div class="temp">${current.temperature}°${current.temperatureUnit}</div>
-    <div class="condition">${iconFor(current.shortForecast, current.isDaytime)} ${escapeHtml(current.shortForecast)} — ${escapeHtml(current.name)}</div>
+    <div class="temp">${conditions.tempF}°F</div>
+    <div class="condition">${iconFor(conditions.shortForecast, conditions.isDaytime)} ${escapeHtml(conditions.shortForecast)}</div>
+    <div class="period-forecast">${periodLine}</div>
+    <div class="observed-at">${observedLine}</div>
   `;
 
   const days = periods.filter((p) => p.isDaytime).slice(0, 7);
@@ -240,6 +295,38 @@ function renderError() {
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
+function cToF(c) {
+  return Math.round((c * 9) / 5 + 32);
+}
+
+// Build the "current conditions" object from the observation API when
+// possible, falling back to the first hourly forecast period when the
+// station hasn't reported a usable value (null temp or stale > 90 min).
+function currentConditions(observation, hourlyPeriods) {
+  const hour = hourlyPeriods[0];
+  const tempC = observation?.temperature?.value;
+  const observedAt = observation?.timestamp;
+  if (tempC != null && observedAt) {
+    const age = Date.now() - new Date(observedAt).getTime();
+    if (age <= STALE_OBSERVATION_MS) {
+      return {
+        tempF: cToF(tempC),
+        shortForecast: observation.textDescription || hour.shortForecast,
+        isDaytime: hour.isDaytime,
+        observedAt,
+        fromObservation: true,
+      };
+    }
+  }
+  return {
+    tempF: hour.temperature,
+    shortForecast: hour.shortForecast,
+    isDaytime: hour.isDaytime,
+    observedAt: null,
+    fromObservation: false,
+  };
+}
+
 function formatRelative(iso) {
   if (!iso) return 'unknown time';
   const then = new Date(iso);
@@ -261,12 +348,13 @@ function escapeHtml(str) {
 async function updateLocation() {
   localStorage.removeItem(STORAGE_KEYS.forecastUrl);
   localStorage.removeItem(STORAGE_KEYS.hourlyUrl);
+  localStorage.removeItem(STORAGE_KEYS.observationUrl);
   localStorage.removeItem(STORAGE_KEYS.locationName);
   $current.innerHTML = `<p class="loading">Updating location…</p>`;
   $forecastList.innerHTML = '';
   $status.hidden = true;
-  const { forecastUrl, hourlyUrl, locationName } = await resolveLocation();
-  await fetchForecast(forecastUrl, hourlyUrl, locationName);
+  const { forecastUrl, hourlyUrl, observationUrl, locationName } = await resolveLocation();
+  await fetchForecast(forecastUrl, hourlyUrl, observationUrl, locationName);
 }
 
 $current.addEventListener('click', (event) => {
@@ -278,8 +366,8 @@ $current.addEventListener('click', (event) => {
 // ─── Boot ─────────────────────────────────────────────────────────
 
 (async () => {
-  const { forecastUrl, hourlyUrl, locationName } = await resolveLocation();
-  fetchForecast(forecastUrl, hourlyUrl, locationName);
+  const { forecastUrl, hourlyUrl, observationUrl, locationName } = await resolveLocation();
+  fetchForecast(forecastUrl, hourlyUrl, observationUrl, locationName);
 })();
 
 if ('serviceWorker' in navigator) {
