@@ -361,19 +361,6 @@ function alertBanner(alert) {
   // life-safety text is visible without a click.
   const open = alert.loud ? ' open' : '';
 
-  const relative = formatExpiry(alert.expires);
-  const exact = formatExpiryExact(alert.expires);
-  // When we have an absolute time, the expiry becomes tap-to-reveal (and shows
-  // it on hover via title). A delegated handler on #alerts swaps the text and
-  // stops the click from toggling the card. No exact time → a plain span.
-  const expiry = exact
-    ? `<span class="alert-expiry alert-expiry--toggle" title="${escapeHtml(exact)}"
-         data-relative="${escapeHtml(relative)}" data-exact="${escapeHtml(exact)}"
-         role="button" tabindex="0"
-         aria-label="Expiry: ${escapeHtml(relative)}. Activate to show exact time."
-       >${escapeHtml(relative)}</span>`
-    : `<span class="alert-expiry">${escapeHtml(relative)}</span>`;
-
   const headline = alert.headline && alert.headline !== alert.event
     ? `<p class="alert-headline">${escapeHtml(alert.headline)}</p>`
     : '';
@@ -392,11 +379,25 @@ function alertBanner(alert) {
       <summary class="alert-head">
         <span class="alert-icon">${alertIconFor(alert.event)}</span>
         <span class="alert-event">${escapeHtml(alert.event)}</span>
-        ${expiry}
+        ${expiryChip(alert)}
       </summary>
       ${body}
     </details>
   `;
+}
+
+// The expiry chip. With an absolute time it's tap-to-reveal (and shows it on
+// hover via title); a delegated handler on #alerts swaps the text and stops
+// the click from toggling the card. No exact time → a plain span.
+function expiryChip(alert) {
+  const relative = formatExpiry(alert.expires);
+  const exact = formatExpiryExact(alert.expires);
+  if (!exact) return `<span class="alert-expiry">${escapeHtml(relative)}</span>`;
+  return `<span class="alert-expiry alert-expiry--toggle" title="${escapeHtml(exact)}"
+       data-relative="${escapeHtml(relative)}" data-exact="${escapeHtml(exact)}"
+       role="button" tabindex="0"
+       aria-label="Expiry: ${escapeHtml(relative)}. Activate to show exact time."
+     >${escapeHtml(relative)}</span>`;
 }
 
 // The expiry chip is a tap-to-reveal toggle living inside the <summary>. Without

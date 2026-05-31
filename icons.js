@@ -113,7 +113,7 @@ export function alertIconFor(event) {
   const e = (event || '').toLowerCase();
   if (e.includes('tornado')) return ALERT_ICONS.tornado;
   if (e.includes('thunderstorm') || e.includes('lightning')) return ALERT_ICONS.thunderstorm;
-  if (e.includes('flood') || e.includes('flash flood') || e.includes('tsunami') || e.includes('surge')) return ALERT_ICONS.flood;
+  if (e.includes('flood') || e.includes('tsunami') || e.includes('surge')) return ALERT_ICONS.flood;
   if (e.includes('snow') || e.includes('winter') || e.includes('blizzard') || e.includes('ice') || e.includes('freez') || e.includes('frost') || e.includes('cold') || e.includes('chill')) return ALERT_ICONS.winter;
   if (e.includes('heat') || e.includes('hot')) return ALERT_ICONS.heat;
   if (e.includes('fire') || e.includes('red flag') || e.includes('smoke')) return ALERT_ICONS.fire;
