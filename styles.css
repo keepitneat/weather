@@ -131,30 +131,27 @@ h1 {
   overflow: hidden;
 }
 
-/* Severity tiers — border/accent color + a faint tinted background. */
-.alert--minor {
-  --alert-color: #b8860b;
-  --alert-bg: color-mix(in srgb, #b8860b 8%, var(--bg));
-}
-
-.alert--moderate {
-  --alert-color: #d97706;
-  --alert-bg: color-mix(in srgb, #d97706 10%, var(--bg));
-}
-
-.alert--severe {
-  --alert-color: #ea580c;
-  --alert-bg: color-mix(in srgb, #ea580c 12%, var(--bg));
-}
-
-.alert--extreme {
-  --alert-color: #dc2626;
-  --alert-bg: color-mix(in srgb, #dc2626 14%, var(--bg));
-}
+/* Severity tiers — border/accent color everywhere; the faint tinted
+   background is gated behind @supports below. An invalid color-mix() would
+   NOT trigger .alert's `var(--alert-bg, var(--button-bg))` fallback (that only
+   fires when --alert-bg is *unset*, not when it resolves invalid) — it'd
+   compute to transparent. So on unsupported engines we leave --alert-bg unset
+   and the fallback kicks in cleanly. */
+.alert--minor { --alert-color: #b8860b; }
+.alert--moderate { --alert-color: #d97706; }
+.alert--severe { --alert-color: #ea580c; }
+.alert--extreme { --alert-color: #dc2626; }
 
 .alert--unknown {
   --alert-color: var(--text-muted);
   --alert-bg: var(--button-bg);
+}
+
+@supports (background: color-mix(in srgb, red, blue)) {
+  .alert--minor { --alert-bg: color-mix(in srgb, #b8860b 8%, var(--bg)); }
+  .alert--moderate { --alert-bg: color-mix(in srgb, #d97706 10%, var(--bg)); }
+  .alert--severe { --alert-bg: color-mix(in srgb, #ea580c 12%, var(--bg)); }
+  .alert--extreme { --alert-bg: color-mix(in srgb, #dc2626 14%, var(--bg)); }
 }
 
 /* Loud = filled block, white text, the can't-miss-it treatment. */

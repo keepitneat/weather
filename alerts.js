@@ -74,7 +74,7 @@ export function normalizeAlerts(data) {
     // the canonical URL on both `f.id` and `properties.@id`; null when neither
     // is a real URL (e.g. simulated/local data), so the link just doesn't show.
     const url =
-      [f?.id, p['@id'], p.id].find(
+      [f?.id, p['@id']].find(
         (u) => typeof u === 'string' && /^https?:\/\//.test(u),
       ) ?? null;
     return {
