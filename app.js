@@ -5,6 +5,10 @@
  * ──────────────────────────────────────────────────────────────── */
 
 import { iconFor } from './icons.js';
+import { normalizeAlerts, formatExpiry } from './alerts.js';
+
+const NWS_ALERTS = (lat, lon) =>
+  `https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`;
 
 const NWS_POINTS = (lat, lon) =>
   `https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`;
@@ -14,6 +18,7 @@ const FALLBACK = {
   forecastUrl: 'https://api.weather.gov/gridpoints/OKX/34,44/forecast',
   hourlyUrl: 'https://api.weather.gov/gridpoints/OKX/34,44/forecast/hourly',
   observationUrl: 'https://api.weather.gov/stations/KNYC/observations/latest',
+  alertsUrl: NWS_ALERTS(40.7829, -73.9654), // Central Park
   locationName: 'New York, NY',
   stationName: 'Central Park, NY',
 };
@@ -23,11 +28,13 @@ const STORAGE_KEYS = {
   forecastUrl: 'forecast-url',
   hourlyUrl: 'forecast-hourly-url',
   observationUrl: 'observation-url',
+  alertsUrl: 'alerts-url',
   locationName: 'location-name',
   stationName: 'station-name',
   forecast: 'forecast-cache',
   hourly: 'forecast-hourly-cache',
   observation: 'observation-cache',
+  alerts: 'alerts-cache',
   fetchedAt: 'forecast-fetched-at',
 };
 
@@ -35,9 +42,19 @@ const STORAGE_KEYS = {
 // less accurate at the current hour.
 const STALE_OBSERVATION_MS = 2 * 60 * 60 * 1000;
 
+// Map NWS severity → CSS class suffix (lowercased). Anything unrecognized
+// (incl. "Unknown") gets the neutral .alert--unknown treatment.
+const ALERT_SEVERITY_CLASS = {
+  Extreme: 'extreme',
+  Severe: 'severe',
+  Moderate: 'moderate',
+  Minor: 'minor',
+};
+
 const THEME_STATES = ['system', 'light', 'dark'];
 const THEME_ICONS = { system: '⚙', light: '☀', dark: '☾' };
 
+const $alerts = document.getElementById('alerts');
 const $current = document.getElementById('current');
 const $todayList = document.getElementById('today-list');
 const $forecastList = document.getElementById('forecast-list');
@@ -87,6 +104,7 @@ async function resolveLocation() {
   const cachedForecast = localStorage.getItem(STORAGE_KEYS.forecastUrl);
   const cachedHourly = localStorage.getItem(STORAGE_KEYS.hourlyUrl);
   let cachedObservation = localStorage.getItem(STORAGE_KEYS.observationUrl);
+  const cachedAlerts = localStorage.getItem(STORAGE_KEYS.alertsUrl);
   const cachedName = localStorage.getItem(STORAGE_KEYS.locationName);
   let cachedStationName = localStorage.getItem(STORAGE_KEYS.stationName);
   if (cachedForecast && cachedHourly && cachedName) {
@@ -104,6 +122,7 @@ async function resolveLocation() {
       forecastUrl: cachedForecast,
       hourlyUrl: cachedHourly,
       observationUrl: cachedObservation || null,
+      alertsUrl: cachedAlerts || null,
       locationName: cachedName,
       stationName: cachedStationName || null,
     };
@@ -126,6 +145,9 @@ async function resolveLocation() {
     const forecastUrl = points.properties.forecast;
     const hourlyUrl = points.properties.forecastHourly;
     const stationsUrl = points.properties.observationStations;
+    // Alerts are queried by the user's actual point, not the gridpoint center —
+    // alert polygons are often finer-grained than a forecast grid cell.
+    const alertsUrl = NWS_ALERTS(latitude, longitude);
     const loc = points.properties.relativeLocation.properties;
     // relativeLocation = nearest populated place to the gridpoint CENTER, not the user.
     const locationName = `${loc.city}, ${loc.state}`;
@@ -153,12 +175,13 @@ async function resolveLocation() {
     if (observationUrl) {
       localStorage.setItem(STORAGE_KEYS.observationUrl, observationUrl);
     }
+    localStorage.setItem(STORAGE_KEYS.alertsUrl, alertsUrl);
     if (stationName) {
       localStorage.setItem(STORAGE_KEYS.stationName, stationName);
     }
     localStorage.setItem(STORAGE_KEYS.locationName, locationName);
 
-    return { forecastUrl, hourlyUrl, observationUrl, locationName, stationName };
+    return { forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName };
   } catch (err) {
     console.warn('Location resolution failed; using fallback:', err);
     return FALLBACK;
@@ -188,19 +211,24 @@ async function resolveStationFromForecastUrl(forecastUrl) {
 
 // ─── Forecast fetch + render ──────────────────────────────────────
 
-async function fetchForecast({ forecastUrl, hourlyUrl, observationUrl, locationName, stationName }) {
+async function fetchForecast({ forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName }) {
   try {
-    // Observation fetch is best-effort — if it fails, we still render
-    // forecast with the first hourly period as current conditions.
+    // Observation + alerts fetches are best-effort — if either fails, we
+    // still render the forecast. A failed alerts fetch must NOT blank out
+    // a previously-cached alert, so we keep the cache on failure.
     const fetchOpts = { headers: { 'Accept': 'application/geo+json' } };
     const observationPromise = observationUrl
       ? fetch(observationUrl, fetchOpts).then((res) => (res.ok ? res.json() : null)).catch(() => null)
       : Promise.resolve(null);
+    const alertsPromise = alertsUrl
+      ? fetch(alertsUrl, fetchOpts).then((res) => (res.ok ? res.json() : null)).catch(() => null)
+      : Promise.resolve(null);
 
-    const [forecastRes, hourlyRes, observationData] = await Promise.all([
+    const [forecastRes, hourlyRes, observationData, alertsData] = await Promise.all([
       fetch(forecastUrl, fetchOpts),
       fetch(hourlyUrl, fetchOpts),
       observationPromise,
+      alertsPromise,
     ]);
     if (!forecastRes.ok) throw new Error(`Forecast HTTP ${forecastRes.status}`);
     if (!hourlyRes.ok) throw new Error(`Hourly HTTP ${hourlyRes.status}`);
@@ -215,19 +243,32 @@ async function fetchForecast({ forecastUrl, hourlyUrl, observationUrl, locationN
     if (observation) {
       localStorage.setItem(STORAGE_KEYS.observation, JSON.stringify(observation));
     }
+    // Cache alerts alongside the forecast so they show offline. A null/empty
+    // live response (genuinely no active alerts) clears the cache; a fetch
+    // FAILURE (alertsData === null) leaves the cache untouched.
+    let alerts;
+    if (alertsData !== null) {
+      alerts = normalizeAlerts(alertsData);
+      localStorage.setItem(STORAGE_KEYS.alerts, JSON.stringify(alerts));
+    } else {
+      const cachedAlerts = localStorage.getItem(STORAGE_KEYS.alerts);
+      alerts = cachedAlerts ? JSON.parse(cachedAlerts) : [];
+    }
     localStorage.setItem(STORAGE_KEYS.fetchedAt, new Date().toISOString());
 
-    render({ periods, hourlyPeriods, observation, locationName, stationName, fromCache: false });
+    render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache: false });
   } catch (err) {
     console.warn('Live fetch failed; trying cache:', err);
     const cachedForecast = localStorage.getItem(STORAGE_KEYS.forecast);
     const cachedHourly = localStorage.getItem(STORAGE_KEYS.hourly);
     const cachedObservation = localStorage.getItem(STORAGE_KEYS.observation);
+    const cachedAlerts = localStorage.getItem(STORAGE_KEYS.alerts);
     if (cachedForecast && cachedHourly) {
       render({
         periods: JSON.parse(cachedForecast),
         hourlyPeriods: JSON.parse(cachedHourly),
         observation: cachedObservation ? JSON.parse(cachedObservation) : null,
+        alerts: cachedAlerts ? JSON.parse(cachedAlerts) : [],
         locationName,
         stationName,
         fromCache: true,
@@ -238,7 +279,9 @@ async function fetchForecast({ forecastUrl, hourlyUrl, observationUrl, locationN
   }
 }
 
-function render({ periods, hourlyPeriods, observation, locationName, stationName, fromCache }) {
+function render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache }) {
+  renderAlerts(alerts || [], fromCache);
+
   const conditions = currentConditions(observation, hourlyPeriods);
   // City as headline; station name (often ALL-CAPS airport jargon) goes in the observed-at line as provenance.
   let observedLine;
@@ -289,6 +332,52 @@ function render({ periods, hourlyPeriods, observation, locationName, stationName
       $status.hidden = true;
     }
   }
+}
+
+// ─── Alerts render ────────────────────────────────────────────────
+
+function renderAlerts(alerts, fromCache) {
+  if (!alerts || alerts.length === 0) {
+    $alerts.hidden = true;
+    $alerts.innerHTML = '';
+    return;
+  }
+
+  const staleNote = fromCache
+    ? '<p class="alert-stale">Showing cached alerts — may be out of date.</p>'
+    : '';
+
+  $alerts.innerHTML = staleNote + alerts.map(alertBanner).join('');
+  $alerts.hidden = false;
+}
+
+function alertBanner(alert) {
+  const severity = ALERT_SEVERITY_CLASS[alert.severity] || 'unknown';
+  const loud = alert.loud ? ' alert--loud' : '';
+  const expiry = formatExpiry(alert.expires);
+  // Headline already restates the event for most NWS alerts, so only show it
+  // when it adds something. Description goes behind a native <details> toggle —
+  // same click-to-expand pattern as the forecast cards, no JS needed.
+  const headline = alert.headline && alert.headline !== alert.event
+    ? `<p class="alert-headline">${escapeHtml(alert.headline)}</p>`
+    : '';
+  const description = alert.description
+    ? `<details class="alert-detail">
+        <summary>Details</summary>
+        <p>${escapeHtml(alert.description)}</p>
+      </details>`
+    : '';
+
+  return `
+    <article class="alert alert--${severity}${loud}" role="alert">
+      <div class="alert-head">
+        <span class="alert-event">${escapeHtml(alert.event)}</span>
+        <span class="alert-expiry">${escapeHtml(expiry)}</span>
+      </div>
+      ${headline}
+      ${description}
+    </article>
+  `;
 }
 
 function currentDayCard(currentPeriod, todayPeriods, hourlyPeriods, now, todayEnd) {
@@ -371,6 +460,8 @@ function renderHour(hour) {
 }
 
 function renderError() {
+  $alerts.hidden = true;
+  $alerts.innerHTML = '';
   $current.innerHTML = `
     <div class="loading">Couldn't load forecast. Check your connection and refresh.</div>
   `;
@@ -487,8 +578,13 @@ async function updateLocation() {
   localStorage.removeItem(STORAGE_KEYS.forecastUrl);
   localStorage.removeItem(STORAGE_KEYS.hourlyUrl);
   localStorage.removeItem(STORAGE_KEYS.observationUrl);
+  localStorage.removeItem(STORAGE_KEYS.alertsUrl);
   localStorage.removeItem(STORAGE_KEYS.locationName);
   localStorage.removeItem(STORAGE_KEYS.stationName);
+  // Drop the cached alerts too — they belonged to the old location.
+  localStorage.removeItem(STORAGE_KEYS.alerts);
+  $alerts.hidden = true;
+  $alerts.innerHTML = '';
   $current.innerHTML = `<p class="loading">Updating location…</p>`;
   $todayList.innerHTML = '';
   $forecastList.innerHTML = '';
