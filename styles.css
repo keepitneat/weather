@@ -257,6 +257,35 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
+/* Current-day card — multi-row layout (one row per remaining NWS period),
+   chevron absolute-positioned to stay anchored top-right. */
+
+.forecast-list .current-day > details > summary {
+  display: block;
+  padding: 0.875rem 1rem;
+  position: relative;
+}
+
+.forecast-list .current-day > details > summary::after {
+  position: absolute;
+  top: 0.875rem;
+  right: 1rem;
+}
+
+.forecast-list .current-day .day-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-right: 1.5rem;
+}
+
+.forecast-list .current-day .day-summary-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
+  align-items: center;
+}
+
 .forecast-list .hourly {
   list-style: none;
   padding: 0;
