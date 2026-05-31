@@ -354,11 +354,7 @@ function renderAlerts(alerts, fromCache) {
 function alertBanner(alert) {
   const severity = ALERT_SEVERITY_CLASS[alert.severity] || 'unknown';
   const loud = alert.loud ? ' alert--loud' : '';
-  // The whole banner is a collapsible <details>, same pattern as the forecast
-  // cards. Collapsed it shows just the event + expiry; expanded adds the
-  // headline, full description, and a link to the source alert. Loud alerts
-  // (tornado / severe-tstorm warnings, anything Extreme) default open so the
-  // life-safety text is visible without a click.
+  // Loud alerts open by default so the life-safety text shows without a click.
   const open = alert.loud ? ' open' : '';
 
   const headline = alert.headline && alert.headline !== alert.event
@@ -386,12 +382,9 @@ function alertBanner(alert) {
   `;
 }
 
-// The expiry chip. A <time> is phrasing content, so — unlike a role=button
-// span — it's valid inside the interactive <summary> and adds no nested
-// control to trip up assistive tech. Screen readers announce the relative
-// text; `datetime` carries the machine-readable value; sighted pointer users
-// get the exact time on hover (title) and can tap to swap relative↔exact.
-// No exact time → a plain span with nothing to reveal.
+// A <time> (phrasing content) is valid inside the interactive <summary>; a
+// role=button span isn't. Exact time rides on title + datetime; pointer users
+// can also tap to swap relative↔exact (see the #alerts click handler).
 function expiryChip(alert) {
   const relative = formatExpiry(alert.expires);
   const exact = formatExpiryExact(alert.expires);
@@ -401,11 +394,8 @@ function expiryChip(alert) {
      >${escapeHtml(relative)}</time>`;
 }
 
-// Tap-to-reveal: swap the chip's relative ↔ exact text. The chip lives inside
-// the <summary>, so without preventDefault the tap would also toggle the card.
-// Pointer-only progressive enhancement — the chip isn't focusable, and the
-// exact time is already exposed to everyone else via the title + datetime.
-// Delegated on #alerts so it survives every re-render.
+// Tap to swap relative ↔ exact text; preventDefault stops the tap from also
+// toggling the card (the chip sits inside the <summary>). Delegated on #alerts.
 $alerts.addEventListener('click', (event) => {
   const chip = event.target.closest('.alert-expiry--toggle');
   if (!chip) return;
