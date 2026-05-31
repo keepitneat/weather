@@ -5,7 +5,7 @@
  * ──────────────────────────────────────────────────────────────── */
 
 import { iconFor } from './icons.js';
-import { normalizeAlerts, formatExpiry } from './alerts.js';
+import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
 
 const NWS_ALERTS = (lat, lon) =>
   `https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`;
@@ -354,31 +354,72 @@ function renderAlerts(alerts, fromCache) {
 function alertBanner(alert) {
   const severity = ALERT_SEVERITY_CLASS[alert.severity] || 'unknown';
   const loud = alert.loud ? ' alert--loud' : '';
-  const expiry = formatExpiry(alert.expires);
-  // Headline already restates the event for most NWS alerts, so only show it
-  // when it adds something. Description goes behind a native <details> toggle —
-  // same click-to-expand pattern as the forecast cards, no JS needed.
+  // The whole banner is a collapsible <details>, same pattern as the forecast
+  // cards. Collapsed it shows just the event + expiry; expanded adds the
+  // headline, full description, and a link to the source alert. Loud alerts
+  // (tornado / severe-tstorm warnings, anything Extreme) default open so the
+  // life-safety text is visible without a click.
+  const open = alert.loud ? ' open' : '';
+
+  const relative = formatExpiry(alert.expires);
+  const exact = formatExpiryExact(alert.expires);
+  // When we have an absolute time, the expiry becomes tap-to-reveal (and shows
+  // it on hover via title). A delegated handler on #alerts swaps the text and
+  // stops the click from toggling the card. No exact time → a plain span.
+  const expiry = exact
+    ? `<span class="alert-expiry alert-expiry--toggle" title="${escapeHtml(exact)}"
+         data-relative="${escapeHtml(relative)}" data-exact="${escapeHtml(exact)}"
+         role="button" tabindex="0"
+         aria-label="Expiry: ${escapeHtml(relative)}. Activate to show exact time."
+       >${escapeHtml(relative)}</span>`
+    : `<span class="alert-expiry">${escapeHtml(relative)}</span>`;
+
   const headline = alert.headline && alert.headline !== alert.event
     ? `<p class="alert-headline">${escapeHtml(alert.headline)}</p>`
     : '';
   const description = alert.description
-    ? `<details class="alert-detail">
-        <summary>Details</summary>
-        <p>${escapeHtml(alert.description)}</p>
-      </details>`
+    ? `<p class="alert-description">${escapeHtml(alert.description)}</p>`
+    : '';
+  const link = alert.url
+    ? `<a class="alert-link" href="${escapeHtml(alert.url)}" target="_blank" rel="noopener noreferrer">View full alert ↗</a>`
+    : '';
+  const body = headline + description + link
+    ? `<div class="alert-body">${headline}${description}${link}</div>`
     : '';
 
   return `
-    <article class="alert alert--${severity}${loud}" role="alert">
-      <div class="alert-head">
+    <details class="alert alert--${severity}${loud}"${open}>
+      <summary class="alert-head">
         <span class="alert-event">${escapeHtml(alert.event)}</span>
-        <span class="alert-expiry">${escapeHtml(expiry)}</span>
-      </div>
-      ${headline}
-      ${description}
-    </article>
+        ${expiry}
+      </summary>
+      ${body}
+    </details>
   `;
 }
+
+// The expiry chip is a tap-to-reveal toggle living inside the <summary>. Without
+// this, a tap would just open/close the card (the summary's default action). We
+// intercept the click, swap relative ↔ exact, and preventDefault so the card
+// stays put. Delegated on #alerts so it survives every re-render.
+$alerts.addEventListener('click', (event) => {
+  const chip = event.target.closest('.alert-expiry--toggle');
+  if (!chip) return;
+  event.preventDefault();
+  const showingExact = chip.dataset.showing === 'exact';
+  chip.textContent = showingExact ? chip.dataset.relative : chip.dataset.exact;
+  chip.dataset.showing = showingExact ? 'relative' : 'exact';
+});
+
+// Keyboard parity: Enter/Space on the focused expiry chip toggles it too,
+// without bubbling up to toggle the <summary>.
+$alerts.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const chip = event.target.closest('.alert-expiry--toggle');
+  if (!chip) return;
+  event.preventDefault();
+  chip.click();
+});
 
 function currentDayCard(currentPeriod, todayPeriods, hourlyPeriods, now, todayEnd) {
   const summaryRows = todayPeriods.map((p) => {

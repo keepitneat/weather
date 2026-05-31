@@ -12,6 +12,7 @@ import {
   severityRank,
   isLoudAlert,
   formatExpiry,
+  formatExpiryExact,
   normalizeAlerts,
   ALERT_SEVERITIES,
 } from './alerts.js';
@@ -92,6 +93,19 @@ test('formatExpiry: missing timestamp is handled gracefully', () => {
   assert.equal(formatExpiry(undefined, now), 'no expiry given');
 });
 
+// ─── formatExpiryExact ───────────────────────────────────────────
+
+test('formatExpiryExact: empty / invalid timestamps yield empty string', () => {
+  assert.equal(formatExpiryExact(null), '');
+  assert.equal(formatExpiryExact(undefined), '');
+  assert.equal(formatExpiryExact('not-a-date'), '');
+});
+
+test('formatExpiryExact: a valid timestamp renders a non-empty local string', () => {
+  // Locale/TZ-dependent output, so we only assert it produced something.
+  assert.ok(formatExpiryExact('2026-05-30T18:00:00Z').length > 0);
+});
+
 // ─── normalizeAlerts ─────────────────────────────────────────────
 
 test('normalizeAlerts: empty / missing input yields empty array', () => {
@@ -117,6 +131,24 @@ test('normalizeAlerts: extracts the fields we render', () => {
   assert.equal(alert.description, 'A tornado was spotted near...');
   assert.equal(alert.expires, '2026-05-30T18:00:00Z');
   assert.equal(alert.loud, true);
+});
+
+test('normalizeAlerts: captures an http(s) url for the "full alert" link', () => {
+  const url = 'https://api.weather.gov/alerts/urn:oid:2.49.0.1.840.0.abc.001.1';
+  const [alert] = normalizeAlerts(geojson({ id: url, event: 'Tornado Warning' }));
+  assert.equal(alert.url, url);
+});
+
+test('normalizeAlerts: falls back to properties.@id when feature id is not a url', () => {
+  const url = 'https://api.weather.gov/alerts/urn:oid:xyz';
+  const data = { features: [{ id: 'urn:oid:xyz', properties: { '@id': url } }] };
+  const [alert] = normalizeAlerts(data);
+  assert.equal(alert.url, url);
+});
+
+test('normalizeAlerts: url is null when there is no http(s) candidate', () => {
+  const [alert] = normalizeAlerts(geojson({ id: 'sim-tornado', event: 'Tornado Warning' }));
+  assert.equal(alert.url, null);
 });
 
 test('normalizeAlerts: falls back to ends when expires is absent', () => {

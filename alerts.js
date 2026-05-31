@@ -45,6 +45,21 @@ export function formatExpiry(iso, now = Date.now()) {
   return `expires in ${Math.floor(minutes / 60)} hr`;
 }
 
+// The precise local "expires at" behind the coarse relative label — shown on
+// hover (title) and tap-to-reveal. Returns '' when there's no usable
+// timestamp; the relative label already says "no expiry given" in that case.
+export function formatExpiryExact(iso) {
+  if (!iso) return '';
+  const expires = new Date(iso);
+  if (Number.isNaN(expires.getTime())) return '';
+  return expires.toLocaleString([], {
+    weekday: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  });
+}
+
 // Turn the NWS active-alerts GeoJSON into the sorted view-model app.js
 // renders. Most severe first; equal severity keeps API order (stable).
 export function normalizeAlerts(data) {
@@ -55,6 +70,13 @@ export function normalizeAlerts(data) {
     const p = f?.properties ?? {};
     const event = p.event || 'Weather Alert';
     const severity = p.severity ?? null;
+    // First http(s) candidate becomes the "view full alert" link. NWS stamps
+    // the canonical URL on both `f.id` and `properties.@id`; null when neither
+    // is a real URL (e.g. simulated/local data), so the link just doesn't show.
+    const url =
+      [f?.id, p['@id'], p.id].find(
+        (u) => typeof u === 'string' && /^https?:\/\//.test(u),
+      ) ?? null;
     return {
       // `f.id` is the canonical URN; fall back to properties.id, then index.
       id: f?.id ?? p.id ?? `alert-${index}`,
@@ -65,6 +87,7 @@ export function normalizeAlerts(data) {
       // `expires` is when the alert text lapses; `ends` is the event end.
       // Prefer expires, fall back to ends.
       expires: p.expires || p.ends || null,
+      url,
       loud: isLoudAlert(event, severity),
       _index: index,
     };
