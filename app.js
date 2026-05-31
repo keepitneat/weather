@@ -370,7 +370,7 @@ function alertBanner(alert) {
   const link = alert.url
     ? `<a class="alert-link" href="${escapeHtml(alert.url)}" target="_blank" rel="noopener noreferrer">View full alert ↗</a>`
     : '';
-  const body = headline + description + link
+  const body = headline || description || link
     ? `<div class="alert-body">${headline}${description}${link}</div>`
     : '';
 
@@ -386,24 +386,26 @@ function alertBanner(alert) {
   `;
 }
 
-// The expiry chip. With an absolute time it's tap-to-reveal (and shows it on
-// hover via title); a delegated handler on #alerts swaps the text and stops
-// the click from toggling the card. No exact time → a plain span.
+// The expiry chip. A <time> is phrasing content, so — unlike a role=button
+// span — it's valid inside the interactive <summary> and adds no nested
+// control to trip up assistive tech. Screen readers announce the relative
+// text; `datetime` carries the machine-readable value; sighted pointer users
+// get the exact time on hover (title) and can tap to swap relative↔exact.
+// No exact time → a plain span with nothing to reveal.
 function expiryChip(alert) {
   const relative = formatExpiry(alert.expires);
   const exact = formatExpiryExact(alert.expires);
   if (!exact) return `<span class="alert-expiry">${escapeHtml(relative)}</span>`;
-  return `<span class="alert-expiry alert-expiry--toggle" title="${escapeHtml(exact)}"
-       data-relative="${escapeHtml(relative)}" data-exact="${escapeHtml(exact)}"
-       role="button" tabindex="0"
-       aria-label="Expiry: ${escapeHtml(relative)}. Activate to show exact time."
-     >${escapeHtml(relative)}</span>`;
+  return `<time class="alert-expiry alert-expiry--toggle" datetime="${escapeHtml(alert.expires)}"
+       title="${escapeHtml(exact)}" data-relative="${escapeHtml(relative)}" data-exact="${escapeHtml(exact)}"
+     >${escapeHtml(relative)}</time>`;
 }
 
-// The expiry chip is a tap-to-reveal toggle living inside the <summary>. Without
-// this, a tap would just open/close the card (the summary's default action). We
-// intercept the click, swap relative ↔ exact, and preventDefault so the card
-// stays put. Delegated on #alerts so it survives every re-render.
+// Tap-to-reveal: swap the chip's relative ↔ exact text. The chip lives inside
+// the <summary>, so without preventDefault the tap would also toggle the card.
+// Pointer-only progressive enhancement — the chip isn't focusable, and the
+// exact time is already exposed to everyone else via the title + datetime.
+// Delegated on #alerts so it survives every re-render.
 $alerts.addEventListener('click', (event) => {
   const chip = event.target.closest('.alert-expiry--toggle');
   if (!chip) return;
@@ -411,16 +413,6 @@ $alerts.addEventListener('click', (event) => {
   const showingExact = chip.dataset.showing === 'exact';
   chip.textContent = showingExact ? chip.dataset.relative : chip.dataset.exact;
   chip.dataset.showing = showingExact ? 'relative' : 'exact';
-});
-
-// Keyboard parity: Enter/Space on the focused expiry chip toggles it too,
-// without bubbling up to toggle the <summary>.
-$alerts.addEventListener('keydown', (event) => {
-  if (event.key !== 'Enter' && event.key !== ' ') return;
-  const chip = event.target.closest('.alert-expiry--toggle');
-  if (!chip) return;
-  event.preventDefault();
-  chip.click();
 });
 
 function currentDayCard(currentPeriod, todayPeriods, hourlyPeriods, now, todayEnd) {
