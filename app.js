@@ -4,7 +4,7 @@
  * No dependencies, no tracking, no nonsense.
  * ──────────────────────────────────────────────────────────────── */
 
-import { iconFor } from './icons.js';
+import { iconFor, alertIconFor } from './icons.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
 
 const NWS_ALERTS = (lat, lon) =>
@@ -390,6 +390,7 @@ function alertBanner(alert) {
   return `
     <details class="alert alert--${severity}${loud}"${open}>
       <summary class="alert-head">
+        <span class="alert-icon">${alertIconFor(alert.event)}</span>
         <span class="alert-event">${escapeHtml(alert.event)}</span>
         ${expiry}
       </summary>

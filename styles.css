@@ -211,6 +211,21 @@ h1 {
   background: color-mix(in srgb, currentColor 6%, transparent);
 }
 
+.alert-icon {
+  display: inline-flex;
+  align-self: center;
+}
+
+/* Tint the icon with the severity color (overriding .icon's brand-green
+   default); on the filled "loud" banners it goes white with the text. */
+.alert-icon .icon {
+  color: var(--alert-color);
+}
+
+.alert--loud .alert-icon .icon {
+  color: #ffffff;
+}
+
 .alert-event {
   font-weight: 600;
   font-size: 1rem;
