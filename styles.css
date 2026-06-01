@@ -491,6 +491,23 @@ h1 {
   font-style: italic;
 }
 
+/* ─── Notify toggle ────────────────────────────────────────── */
+
+#notify-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1.5rem;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+#notify-toggle input {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 /* ─── Status (offline indicator, etc) ──────────────────────── */
 
 #status {

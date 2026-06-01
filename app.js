@@ -5,6 +5,14 @@
 
 import { iconFor, alertIconFor } from './icons.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
+import {
+  notificationsSupported,
+  isEnabled as notifyEnabled,
+  setEnabled as setNotifyEnabled,
+  requestPermission as requestNotifyPermission,
+  notifyNewAlerts,
+  primeSeenIds,
+} from './notifications.js';
 
 const NWS_ALERTS = (lat, lon) =>
   `https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`;
@@ -58,6 +66,8 @@ const $forecastList = document.getElementById('forecast-list');
 const $status = document.getElementById('status');
 const $themeToggle = document.getElementById('theme-toggle');
 const $themeIcon = document.getElementById('theme-icon');
+const $notifyToggle = document.getElementById('notify-toggle');
+const $notifyCheckbox = document.getElementById('notify-checkbox');
 
 // ─── Theme toggle ─────────────────────────────────────────────────
 
@@ -85,6 +95,35 @@ function cycleTheme() {
 
 $themeToggle.addEventListener('click', cycleTheme);
 applyTheme(getThemeState());
+
+// ─── Alert notifications toggle (opt-in, defaults OFF) ────────────
+
+// Last-rendered alerts, so enabling the toggle can prime the seen-set
+// against what's already on screen (no backlog notification dump).
+let lastAlerts = [];
+
+// Hide the toggle entirely where Notifications aren't supported (e.g. an
+// iOS Safari tab that isn't an installed PWA) — a dead checkbox is worse
+// than no checkbox.
+if (notificationsSupported()) {
+  $notifyToggle.hidden = false;
+  $notifyCheckbox.checked = notifyEnabled();
+  $notifyCheckbox.addEventListener('change', async () => {
+    if ($notifyCheckbox.checked) {
+      const permission = await requestNotifyPermission();
+      if (permission !== 'granted') {
+        // Denied or dismissed — revert the toggle; the OS won't re-prompt.
+        $notifyCheckbox.checked = false;
+        setNotifyEnabled(false);
+        return;
+      }
+      setNotifyEnabled(true);
+      primeSeenIds(lastAlerts);
+    } else {
+      setNotifyEnabled(false);
+    }
+  });
+}
 
 // ─── Location resolution ─────────────────────────────────────────
 
@@ -278,6 +317,10 @@ async function fetchForecast({ forecastUrl, hourlyUrl, observationUrl, alertsUrl
 
 function render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache }) {
   renderAlerts(alerts || [], fromCache);
+  lastAlerts = alerts || [];
+  // Cached alerts have already been notified on a prior live fetch, so only
+  // diff-and-notify on fresh data — avoids re-firing every offline render.
+  if (!fromCache) notifyNewAlerts(lastAlerts);
 
   const conditions = currentConditions(observation, hourlyPeriods);
   // City as headline; station name (often ALL-CAPS airport jargon) goes in the observed-at line as provenance.
