@@ -7,7 +7,37 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ALERT_ICONS, alertIconFor } from './icons.js';
+import { WEATHER_ICONS, iconFor, ALERT_ICONS, alertIconFor } from './icons.js';
+
+test('iconFor: forecast strings route to the expected icon', () => {
+  assert.equal(iconFor('Severe Thunderstorm', true), WEATHER_ICONS.thunderstorm);
+  assert.equal(iconFor('Light Rain', true), WEATHER_ICONS.rain);
+  assert.equal(iconFor('Rain Showers', true), WEATHER_ICONS.rain);
+  assert.equal(iconFor('Heavy Snow', true), WEATHER_ICONS.snow);
+  assert.equal(iconFor('Patchy Fog', true), WEATHER_ICONS.fog);
+  assert.equal(iconFor('Sunny', true), WEATHER_ICONS.sun);
+  assert.equal(iconFor('Clear', false), WEATHER_ICONS.moon);
+});
+
+test('iconFor: observation textDescription values route sensibly', () => {
+  // NWS observation strings differ from forecast shortForecasts — these are
+  // the ones that were slipping through to the wrong icon.
+  assert.equal(iconFor('Fair', true), WEATHER_ICONS.sun);
+  assert.equal(iconFor('Fair', false), WEATHER_ICONS.moon);
+  assert.equal(iconFor('A Few Clouds', true), WEATHER_ICONS['partly-cloudy-day']);
+  assert.equal(iconFor('A Few Clouds', false), WEATHER_ICONS['partly-cloudy-night']);
+  assert.equal(iconFor('Mostly Clear', false), WEATHER_ICONS['partly-cloudy-night']);
+  assert.equal(iconFor('Partly Cloudy', true), WEATHER_ICONS['partly-cloudy-day']);
+  assert.equal(iconFor('Mostly Cloudy', true), WEATHER_ICONS.cloudy);
+  assert.equal(iconFor('Mostly Cloudy and Breezy', true), WEATHER_ICONS.cloudy);
+  assert.equal(iconFor('Overcast', true), WEATHER_ICONS.cloudy);
+  assert.equal(iconFor('Haze', true), WEATHER_ICONS.fog);
+});
+
+test('iconFor: missing / unrecognized forecast falls back to sun or moon', () => {
+  assert.equal(iconFor('', true), WEATHER_ICONS.sun);
+  assert.equal(iconFor(null, false), WEATHER_ICONS.moon);
+});
 
 test('alertIconFor: routes the headline event types', () => {
   assert.equal(alertIconFor('Tornado Warning'), ALERT_ICONS.tornado);

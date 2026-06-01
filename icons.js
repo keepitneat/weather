@@ -51,20 +51,35 @@ export const WEATHER_ICONS = {
   </svg>`,
 };
 
-// Pick an icon from a shortForecast string ("Mostly Sunny", "Light Rain", etc.).
-// `isDaytime` controls sun vs. moon for clear/partly-clear conditions.
+// Match-keys in priority order. Each entry's words are tested against the
+// lowercased condition string; first hit wins, so put specific (precipitation)
+// before general (cloud cover). `daySky`/`nightSky` are placeholders resolved
+// against `isDaytime` below — they cover both forecast shortForecasts and the
+// noisier observation textDescriptions ("A Few Clouds", "Mostly Clear", "Fair").
+const ICON_RULES = [
+  [['thunder'], 'thunderstorm'],
+  [['snow', 'flurr', 'sleet', 'blizzard', 'wintry'], 'snow'],
+  [['rain', 'shower', 'drizzle'], 'rain'],
+  [['fog', 'haze', 'mist', 'smoke'], 'fog'],
+  // Mostly-clear conditions: a little cloud cover over an otherwise clear sky.
+  [['partly', 'mostly sunny', 'mostly clear', 'a few clouds', 'isolated clouds', 'scattered clouds'], 'partly'],
+  // Genuine cloud cover. "Mostly clear" / "a few clouds" already short-circuited above.
+  [['cloud', 'overcast'], 'cloudy'],
+];
+
+// Pick an icon from a condition string ("Mostly Sunny", "Light Rain", "A Few
+// Clouds", etc.). `isDaytime` controls sun vs. moon for clear/partly-clear sky.
 export function iconFor(shortForecast, isDaytime) {
   const c = (shortForecast || '').toLowerCase();
-  if (c.includes('thunder')) return WEATHER_ICONS.thunderstorm;
-  if (c.includes('snow') || c.includes('flurr') || c.includes('sleet') || c.includes('blizzard')) return WEATHER_ICONS.snow;
-  if (c.includes('rain') || c.includes('shower') || c.includes('drizzle')) return WEATHER_ICONS.rain;
-  if (c.includes('fog') || c.includes('haze') || c.includes('mist') || c.includes('smoke')) return WEATHER_ICONS.fog;
-  // Partly anything (partly sunny / partly cloudy / mostly sunny w/ clouds)
-  if (c.includes('partly') || c.includes('mostly sunny')) {
-    return isDaytime ? WEATHER_ICONS['partly-cloudy-day'] : WEATHER_ICONS['partly-cloudy-night'];
+  for (const [words, key] of ICON_RULES) {
+    if (words.some((w) => c.includes(w))) {
+      if (key === 'partly') {
+        return isDaytime ? WEATHER_ICONS['partly-cloudy-day'] : WEATHER_ICONS['partly-cloudy-night'];
+      }
+      return WEATHER_ICONS[key];
+    }
   }
-  if (c.includes('cloud') || c.includes('overcast')) return WEATHER_ICONS.cloudy;
-  // Clear, sunny, fair, or anything unrecognized — fall back to sun/moon
+  // Clear, sunny, fair, or anything unrecognized — fall back to sun/moon.
   return isDaytime ? WEATHER_ICONS.sun : WEATHER_ICONS.moon;
 }
 

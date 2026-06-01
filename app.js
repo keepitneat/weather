@@ -5,6 +5,7 @@
 
 import { iconFor, alertIconFor } from './icons.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
+import { titleCase } from './format.js';
 import {
   notificationsSupported,
   isEnabled as notifyEnabled,
@@ -139,20 +140,16 @@ async function getBrowserPosition() {
 async function resolveLocation() {
   const cachedForecast = localStorage.getItem(STORAGE_KEYS.forecastUrl);
   const cachedHourly = localStorage.getItem(STORAGE_KEYS.hourlyUrl);
-  let cachedObservation = localStorage.getItem(STORAGE_KEYS.observationUrl);
+  const cachedObservation = localStorage.getItem(STORAGE_KEYS.observationUrl);
   const cachedAlerts = localStorage.getItem(STORAGE_KEYS.alertsUrl);
   const cachedName = localStorage.getItem(STORAGE_KEYS.locationName);
-  let cachedStationName = localStorage.getItem(STORAGE_KEYS.stationName);
+  const cachedStationName = localStorage.getItem(STORAGE_KEYS.stationName);
   if (cachedForecast && cachedHourly && cachedName) {
-    // observationUrl may be null on upgrade — backfill from cached forecast URL.
+    // observationUrl may be null on upgrade. Backfill it fire-and-forget so the
+    // cached forecast paints without waiting on a station round-trip; the URL
+    // lands in storage for next boot. This render goes out with no observation.
     if (!cachedObservation) {
-      const resolved = await resolveStationFromForecastUrl(cachedForecast);
-      if (resolved) {
-        cachedObservation = resolved.observationUrl;
-        cachedStationName = resolved.stationName;
-        localStorage.setItem(STORAGE_KEYS.observationUrl, cachedObservation);
-        localStorage.setItem(STORAGE_KEYS.stationName, cachedStationName);
-      }
+      backfillObservationUrl(cachedForecast);
     }
     return {
       forecastUrl: cachedForecast,
@@ -221,6 +218,17 @@ async function resolveLocation() {
   } catch (err) {
     console.warn('Location resolution failed; using fallback:', err);
     return FALLBACK;
+  }
+}
+
+// Fire-and-forget: resolve the observation station from a cached forecast URL
+// and stash it for the next boot. Intentionally not awaited — a failure just
+// means we try again next load.
+async function backfillObservationUrl(forecastUrl) {
+  const resolved = await resolveStationFromForecastUrl(forecastUrl);
+  if (resolved) {
+    localStorage.setItem(STORAGE_KEYS.observationUrl, resolved.observationUrl);
+    localStorage.setItem(STORAGE_KEYS.stationName, resolved.stationName);
   }
 }
 
@@ -322,6 +330,17 @@ function render({ periods, hourlyPeriods, observation, alerts, locationName, sta
   // diff-and-notify on fresh data — avoids re-firing every offline render.
   if (!fromCache) notifyNewAlerts(lastAlerts);
 
+  const now = Date.now();
+  const { currentPeriod, todayPeriods, futureDaytime, todayEnd } =
+    selectPeriods(periods, now);
+
+  renderCurrent({ observation, hourlyPeriods, locationName, stationName });
+  renderToday({ currentPeriod, todayPeriods, hourlyPeriods, now, todayEnd });
+  renderForecast({ futureDaytime, hourlyPeriods });
+  renderStatus(fromCache);
+}
+
+function renderCurrent({ observation, hourlyPeriods, locationName, stationName }) {
   const conditions = currentConditions(observation, hourlyPeriods);
   // City as headline; station name (often ALL-CAPS airport jargon) goes in the observed-at line as provenance.
   let observedLine;
@@ -340,15 +359,15 @@ function render({ periods, hourlyPeriods, observation, alerts, locationName, sta
     <div class="condition">${iconFor(conditions.shortForecast, conditions.isDaytime)} ${escapeHtml(conditions.shortForecast)}</div>
     <div class="observed-at">${observedLine}</div>
   `;
+}
 
-  const now = Date.now();
-  const { currentPeriod, todayPeriods, futureDaytime, todayEnd } =
-    selectPeriods(periods, now);
-
+function renderToday({ currentPeriod, todayPeriods, hourlyPeriods, now, todayEnd }) {
   $todayList.innerHTML = currentPeriod
     ? currentDayCard(currentPeriod, todayPeriods, hourlyPeriods, now, todayEnd)
     : '';
+}
 
+function renderForecast({ futureDaytime, hourlyPeriods }) {
   const forecastCards = futureDaytime.map((dayPeriod) => {
     const { start, end } = calendarDayBounds(new Date(dayPeriod.startTime));
     return periodCard(dayPeriod, hourlyPeriods, {
@@ -358,7 +377,9 @@ function render({ periods, hourlyPeriods, observation, alerts, locationName, sta
     });
   });
   $forecastList.innerHTML = forecastCards.join('');
+}
 
+function renderStatus(fromCache) {
   const fetchedAt = localStorage.getItem(STORAGE_KEYS.fetchedAt);
   if (fromCache) {
     $status.textContent = `Offline — showing cached data from ${formatRelative(fetchedAt)}.`;
@@ -441,6 +462,23 @@ $alerts.addEventListener('click', (event) => {
   chip.dataset.showing = showingExact ? 'relative' : 'exact';
 });
 
+// Shared disclosure-card shell: an <li> wrapping a <details> whose <summary> is
+// `summary` and whose body is the `hours` hourly periods (or an empty-state).
+function cardShell({ summary, hours, open = false, liClass = '' }) {
+  const liAttr = liClass ? ` class="${liClass}"` : '';
+  const body = hours.length === 0
+    ? '<li class="hourly-empty">No hourly data available.</li>'
+    : hours.map(renderHour).join('');
+  return `
+    <li${liAttr}>
+      <details${open ? ' open' : ''}>
+        <summary>${summary}</summary>
+        <ol class="hourly">${body}</ol>
+      </details>
+    </li>
+  `;
+}
+
 function currentDayCard(currentPeriod, todayPeriods, hourlyPeriods, now, todayEnd) {
   const summaryRows = todayPeriods.map((p) => {
     // First hourly forecast temp in this period — period.temperature is the
@@ -467,22 +505,11 @@ function currentDayCard(currentPeriod, todayPeriods, hourlyPeriods, now, todayEn
     const t = new Date(h.startTime).getTime();
     return t >= hourLowerBound && t < todayEnd;
   });
-  return `
-    <li class="current-day">
-      <details>
-        <summary>
-          <div class="day-summary">
-            ${summaryRows}
-          </div>
-        </summary>
-        <ol class="hourly">
-          ${hoursForDay.length === 0
-            ? '<li class="hourly-empty">No hourly data available.</li>'
-            : hoursForDay.map(renderHour).join('')}
-        </ol>
-      </details>
-    </li>
-  `;
+  return cardShell({
+    liClass: 'current-day',
+    summary: `<div class="day-summary">${summaryRows}</div>`,
+    hours: hoursForDay,
+  });
 }
 
 function periodCard(period, hourlyPeriods, { open, hourlyStart, hourlyEnd }) {
@@ -491,22 +518,12 @@ function periodCard(period, hourlyPeriods, { open, hourlyStart, hourlyEnd }) {
     const t = new Date(h.startTime).getTime();
     return t >= filterStart && t < hourlyEnd;
   });
-  return `
-    <li>
-      <details${open ? ' open' : ''}>
-        <summary>
-          <span class="day">${escapeHtml(period.name)}</span>
-          <span class="condition">${iconFor(period.shortForecast, period.isDaytime)} ${escapeHtml(period.shortForecast)}</span>
-          <span class="temp">${period.temperature}°</span>
-        </summary>
-        <ol class="hourly">
-          ${hoursForPeriod.length === 0
-            ? '<li class="hourly-empty">No hourly data available.</li>'
-            : hoursForPeriod.map(renderHour).join('')}
-        </ol>
-      </details>
-    </li>
+  const summary = `
+    <span class="day">${escapeHtml(period.name)}</span>
+    <span class="condition">${iconFor(period.shortForecast, period.isDaytime)} ${escapeHtml(period.shortForecast)}</span>
+    <span class="temp">${period.temperature}°</span>
   `;
+  return cardShell({ summary, hours: hoursForPeriod, open });
 }
 
 function renderHour(hour) {
@@ -561,10 +578,6 @@ function selectPeriods(periods, now) {
     .filter((p) => p.isDaytime && new Date(p.startTime).getTime() >= todayEnd)
     .slice(0, 6);
   return { currentPeriod, todayPeriods, futureDaytime, todayEnd };
-}
-
-function titleCase(str) {
-  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 function parseObservation(observation) {
