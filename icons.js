@@ -51,6 +51,18 @@ export const WEATHER_ICONS = {
   </svg>`,
 };
 
+// Theme-toggle chrome (system / light / dark). `light`/`dark` reuse the weather
+// sun/moon; `system` is the shared brand monitor glyph copied from
+// keepitneat.github.io/icons/neat-icons.js — keep it in sync with that source.
+export const THEME_ICONS = {
+  system: `<svg ${ICON_ATTRS}>
+    <rect x="3" y="4" width="18" height="13" rx="1.5"/>
+    <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+  </svg>`,
+  light: WEATHER_ICONS.sun,
+  dark: WEATHER_ICONS.moon,
+};
+
 // Match-keys in priority order. Each entry's words are tested against the
 // lowercased condition string; first hit wins, so put specific (precipitation)
 // before general (cloud cover). `daySky`/`nightSky` are placeholders resolved

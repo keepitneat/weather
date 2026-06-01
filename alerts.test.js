@@ -182,3 +182,40 @@ test('normalizeAlerts: missing event/headline degrade to safe defaults', () => {
   assert.equal(alert.headline, '');
   assert.equal(alert.description, '');
 });
+
+test('normalizeAlerts: when NWS omits an id, derives a content-stable id (not positional)', () => {
+  // No feature id and no properties.id — the fallback must not be index-based.
+  const props = {
+    event: 'Tornado Warning',
+    expires: '2026-05-30T18:00:00Z',
+    areaDesc: 'Dane County',
+    headline: 'Tornado Warning until 6 PM',
+  };
+  const data = { features: [{ properties: props }] };
+  const [alert] = normalizeAlerts(data);
+  assert.equal(typeof alert.id, 'string');
+  assert.ok(alert.id.length > 0);
+  // Stable across calls: identical content yields the same id.
+  const [again] = normalizeAlerts({ features: [{ properties: { ...props } }] });
+  assert.equal(alert.id, again.id);
+});
+
+test('normalizeAlerts: different alert content yields different stable ids', () => {
+  const a = { features: [{ properties: { event: 'Tornado Warning', expires: '2026-05-30T18:00:00Z', areaDesc: 'Dane County' } }] };
+  const b = { features: [{ properties: { event: 'Flood Warning', expires: '2026-05-30T18:00:00Z', areaDesc: 'Dane County' } }] };
+  const [alertA] = normalizeAlerts(a);
+  const [alertB] = normalizeAlerts(b);
+  assert.notEqual(alertA.id, alertB.id);
+});
+
+test('normalizeAlerts: stable fallback id is independent of position', () => {
+  // Same alert content at different indices must keep the same id, so the
+  // seen-id dedup tracks identity rather than array position.
+  const tornado = { event: 'Tornado Warning', severity: 'Extreme', expires: '2026-05-30T18:00:00Z', areaDesc: 'Dane County' };
+  const flood = { event: 'Flood Warning', severity: 'Minor', expires: '2026-05-30T20:00:00Z', areaDesc: 'Rock County' };
+  const first = normalizeAlerts({ features: [{ properties: tornado }, { properties: flood }] });
+  const second = normalizeAlerts({ features: [{ properties: flood }, { properties: tornado }] });
+  const floodFirst = first.find((a) => a.event === 'Flood Warning');
+  const floodSecond = second.find((a) => a.event === 'Flood Warning');
+  assert.equal(floodFirst.id, floodSecond.id);
+});

@@ -3,9 +3,18 @@
  * No dependencies, no tracking, no nonsense.
  * ──────────────────────────────────────────────────────────────── */
 
-import { iconFor, alertIconFor } from './icons.js';
+import { iconFor, alertIconFor, THEME_ICONS } from './icons.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
 import { titleCase } from './format.js';
+import { normalizeTheme, themeAttr } from './theme.js';
+import {
+  notificationsSupported,
+  isEnabled as notifyEnabled,
+  setEnabled as setNotifyEnabled,
+  requestPermission as requestNotifyPermission,
+  notifyNewAlerts,
+  primeSeenIds,
+} from './notifications.js';
 
 const NWS_ALERTS = (lat, lon) =>
   `https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`;
@@ -49,43 +58,155 @@ const ALERT_SEVERITY_CLASS = {
   Minor: 'minor',
 };
 
-const THEME_STATES = ['system', 'light', 'dark'];
-const THEME_ICONS = { system: '⚙', light: '☀', dark: '☾' };
-
 const $alerts = document.getElementById('alerts');
 const $current = document.getElementById('current');
 const $todayList = document.getElementById('today-list');
 const $forecastList = document.getElementById('forecast-list');
 const $status = document.getElementById('status');
-const $themeToggle = document.getElementById('theme-toggle');
-const $themeIcon = document.getElementById('theme-icon');
+const $settingsToggle = document.getElementById('settings-toggle');
+const $settingsMenu = document.getElementById('settings-menu');
+const $themeRadios = $settingsMenu.querySelectorAll('input[name="theme"]');
+const $notifyToggle = document.getElementById('notify-toggle');
+const $notifyCheckbox = document.getElementById('notify-checkbox');
 
-// ─── Theme toggle ─────────────────────────────────────────────────
+// ─── Theme control (explicit System / Light / Dark radios) ────────
 
 function getThemeState() {
-  return localStorage.getItem(STORAGE_KEYS.theme) || 'system';
+  return normalizeTheme(localStorage.getItem(STORAGE_KEYS.theme));
 }
 
 function applyTheme(state) {
-  if (state === 'system') {
+  const attr = themeAttr(state);
+  if (attr === null) {
     document.documentElement.removeAttribute('data-theme');
     localStorage.removeItem(STORAGE_KEYS.theme);
   } else {
-    document.documentElement.setAttribute('data-theme', state);
-    localStorage.setItem(STORAGE_KEYS.theme, state);
+    document.documentElement.setAttribute('data-theme', attr);
+    localStorage.setItem(STORAGE_KEYS.theme, attr);
   }
-  $themeIcon.textContent = THEME_ICONS[state];
-  $themeToggle.setAttribute('aria-label', `Theme: ${state}. Click to cycle.`);
 }
 
-function cycleTheme() {
-  const current = getThemeState();
-  const next = THEME_STATES[(THEME_STATES.indexOf(current) + 1) % THEME_STATES.length];
-  applyTheme(next);
+function syncThemeRadios(state) {
+  $themeRadios.forEach((radio) => {
+    radio.checked = radio.value === state;
+  });
 }
 
-$themeToggle.addEventListener('click', cycleTheme);
+$themeRadios.forEach((radio) => {
+  const icon = radio.closest('label').querySelector('.theme-icon');
+  if (icon) icon.innerHTML = THEME_ICONS[radio.value] ?? '';
+  radio.addEventListener('change', () => {
+    if (radio.checked) applyTheme(radio.value);
+  });
+});
+
 applyTheme(getThemeState());
+syncThemeRadios(getThemeState());
+
+// ─── Settings menu (open/close, focus, keyboard) ──────────────────
+
+function openSettings() {
+  $settingsMenu.hidden = false;
+  $settingsToggle.setAttribute('aria-expanded', 'true');
+  // Land focus on the first control so keyboard users go straight in.
+  const first = $settingsMenu.querySelector('input:not([disabled])');
+  first?.focus();
+  document.addEventListener('click', onOutsideClick);
+  document.addEventListener('keydown', onMenuKeydown);
+}
+
+function closeSettings({ restoreFocus = false } = {}) {
+  $settingsMenu.hidden = true;
+  $settingsToggle.setAttribute('aria-expanded', 'false');
+  document.removeEventListener('click', onOutsideClick);
+  document.removeEventListener('keydown', onMenuKeydown);
+  if (restoreFocus) $settingsToggle.focus();
+}
+
+function settingsOpen() {
+  return !$settingsMenu.hidden;
+}
+
+function onOutsideClick(event) {
+  if (!event.target.closest('.settings')) closeSettings();
+}
+
+function onMenuKeydown(event) {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeSettings({ restoreFocus: true });
+    return;
+  }
+  if (event.key === 'Tab') trapTab(event);
+}
+
+// Keep Tab inside the open menu. Radios are a roving-tabstop group, so only
+// the checked theme radio is a tab stop; query live each time so the notify
+// checkbox isn't counted while it's still disabled (cold boot).
+function trapTab(event) {
+  const focusable = [...$settingsMenu.querySelectorAll('input:not([disabled])')]
+    .filter((el) => el.type !== 'radio' || el.checked);
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+$settingsToggle.addEventListener('click', (event) => {
+  // Stop the document listener (added on open) from immediately closing it.
+  event.stopPropagation();
+  settingsOpen() ? closeSettings() : openSettings();
+});
+
+// ─── Alert notifications toggle (opt-in, defaults OFF) ────────────
+
+// Last-rendered alerts, so enabling the toggle can prime the seen-set
+// against what's already on screen (no backlog notification dump).
+let lastAlerts = [];
+
+// The checkbox stays disabled (in the HTML) until the first render populates
+// `lastAlerts` — opting in before then would prime against an empty set, so
+// the first live fetch would dump a notification for every active alert.
+function enableNotifyToggle() {
+  if (notificationsSupported()) $notifyCheckbox.disabled = false;
+}
+
+// Hide the toggle entirely where Notifications aren't supported (e.g. an
+// iOS Safari tab that isn't an installed PWA) — a dead checkbox is worse
+// than no checkbox.
+if (notificationsSupported()) {
+  $notifyToggle.hidden = false;
+  $notifyCheckbox.checked = notifyEnabled();
+  $notifyCheckbox.addEventListener('change', async () => {
+    if ($notifyCheckbox.checked) {
+      // requestPermission can reject (e.g. insecure context) — treat a throw
+      // exactly like a non-granted result so the checkbox never gets stuck
+      // checked with the pref off.
+      let permission = 'denied';
+      try {
+        permission = await requestNotifyPermission();
+      } catch (err) {
+        console.warn('Notification permission request failed:', err);
+      }
+      if (permission !== 'granted') {
+        // Denied, dismissed, or thrown — revert the toggle; the OS won't re-prompt.
+        $notifyCheckbox.checked = false;
+        setNotifyEnabled(false);
+        return;
+      }
+      setNotifyEnabled(true);
+      primeSeenIds(lastAlerts);
+    } else {
+      setNotifyEnabled(false);
+    }
+  });
+}
 
 // ─── Location resolution ─────────────────────────────────────────
 
@@ -285,7 +406,14 @@ async function fetchForecast({ forecastUrl, hourlyUrl, observationUrl, alertsUrl
 }
 
 function render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache }) {
-  renderAlerts(alerts || [], fromCache);
+  const safeAlerts = alerts || [];
+  renderAlerts(safeAlerts, fromCache);
+  lastAlerts = safeAlerts;
+  // Cached alerts have already been notified on a prior live fetch, so only
+  // diff-and-notify on fresh data — avoids re-firing every offline render.
+  if (!fromCache) notifyNewAlerts(safeAlerts);
+  // lastAlerts is now populated — safe to let the user opt in (see above).
+  enableNotifyToggle();
 
   const now = Date.now();
   const { currentPeriod, todayPeriods, futureDaytime, todayEnd } =
@@ -503,6 +631,10 @@ function renderError() {
   $todayList.innerHTML = '';
   $forecastList.innerHTML = '';
   $status.hidden = true;
+  // Nothing on screen, so an empty set is the correct prime (not a backlog
+  // dump) — enable opt-in rather than leave the toggle dead for the session.
+  lastAlerts = [];
+  enableNotifyToggle();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────

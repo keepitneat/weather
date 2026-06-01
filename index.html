@@ -14,7 +14,8 @@
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
 
-  <!-- FOUC prevention: apply theme BEFORE CSS loads -->
+  <!-- FOUC prevention: apply theme before CSS loads (must run before modules,
+       so it can't import theme.js — keep its valid-theme rule in sync). -->
   <script>
     (function() {
       const saved = localStorage.getItem('theme');
@@ -29,9 +30,28 @@
 <body>
   <header>
     <h1>Just the Weather</h1>
-    <button id="theme-toggle" aria-label="Theme toggle">
-      <span id="theme-icon">⚙</span>
-    </button>
+    <div class="settings">
+      <button id="settings-toggle" aria-label="Settings" aria-haspopup="dialog"
+              aria-expanded="false" aria-controls="settings-menu">
+        <span aria-hidden="true">⚙</span>
+      </button>
+
+      <div id="settings-menu" aria-label="Settings" hidden>
+        <fieldset class="settings-group">
+          <legend>Theme</legend>
+          <div class="theme-options" role="radiogroup" aria-label="Theme">
+            <label><input type="radio" name="theme" value="system"><span><span class="theme-icon" aria-hidden="true"></span>System</span></label>
+            <label><input type="radio" name="theme" value="light"><span><span class="theme-icon" aria-hidden="true"></span>Light</span></label>
+            <label><input type="radio" name="theme" value="dark"><span><span class="theme-icon" aria-hidden="true"></span>Dark</span></label>
+          </div>
+        </fieldset>
+
+        <label id="notify-toggle" class="settings-group" hidden>
+          <input type="checkbox" id="notify-checkbox" disabled>
+          <span>Notify me about weather alerts</span>
+        </label>
+      </div>
+    </div>
   </header>
 
   <main>
@@ -43,7 +63,7 @@
 
     <section id="forecast">
       <ol id="today-list" class="forecast-list"></ol>
-      <h2>7-Day Forecast</h2>
+      <h2>Extended Forecast</h2>
       <ol id="forecast-list" class="forecast-list"></ol>
     </section>
 

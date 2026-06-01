@@ -44,6 +44,21 @@ export function formatExpiryExact(iso) {
   });
 }
 
+// Content-stable fallback id for alerts NWS doesn't tag. A positional
+// `alert-${index}` would make the seen-id dedup track array position, not
+// identity; hashing the identifying fields keeps the id tied to content.
+function stableAlertId(p) {
+  const basis = [p.event, p.expires || p.ends, p.areaDesc, p.headline]
+    .map((v) => v || '')
+    .join('\u0000');
+  // djb2 — small, dependency-free, and good enough for an identity key.
+  let hash = 5381;
+  for (let i = 0; i < basis.length; i++) {
+    hash = ((hash << 5) + hash + basis.charCodeAt(i)) | 0;
+  }
+  return `alert-${(hash >>> 0).toString(36)}`;
+}
+
 // Turn the NWS active-alerts GeoJSON into the sorted view-model app.js
 // renders. Most severe first; equal severity keeps API order (stable).
 export function normalizeAlerts(data) {
@@ -60,8 +75,9 @@ export function normalizeAlerts(data) {
         (u) => typeof u === 'string' && /^https?:\/\//.test(u),
       ) ?? null;
     return {
-      // `f.id` is the canonical URN; fall back to properties.id, then index.
-      id: f?.id ?? p.id ?? `alert-${index}`,
+      // `f.id` is the canonical URN; fall back to properties.id, then a
+      // content-stable hash (never positional — see stableAlertId).
+      id: f?.id ?? p.id ?? stableAlertId(p),
       event,
       severity,
       headline: p.headline || '',
