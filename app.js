@@ -7,6 +7,7 @@ import { iconFor, alertIconFor, THEME_ICONS } from './icons.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
 import { titleCase } from './format.js';
 import { normalizeTheme, themeAttr } from './theme.js';
+import { isIosSafari, isStandalone, installAffordance } from './install.js';
 import {
   notificationsSupported,
   isEnabled as notifyEnabled,
@@ -207,6 +208,59 @@ if (notificationsSupported()) {
     }
   });
 }
+
+// ─── Install affordance (platform-aware, lives in settings menu) ──
+
+const $installGroup = document.getElementById('install-group');
+const $installButton = document.getElementById('install-button');
+const $installIos = document.getElementById('install-ios');
+
+// beforeinstallprompt is Chromium-only and fires once, early — capture it
+// before it can fire, preventDefault to stop the legacy mini-infobar, and
+// stash the event so the Install button can replay it on a user gesture.
+let deferredInstallPrompt = null;
+
+function installContext() {
+  return {
+    standalone: isStandalone({
+      displayModeStandalone: matchMedia('(display-mode: standalone)').matches,
+      navigatorStandalone: navigator.standalone === true,
+    }),
+    iosSafari: isIosSafari(navigator.userAgent),
+    promptAvailable: deferredInstallPrompt !== null,
+  };
+}
+
+function renderInstallAffordance() {
+  const state = installAffordance(installContext());
+  $installButton.hidden = state !== 'install-button';
+  $installIos.hidden = state !== 'ios-instructions';
+  $installGroup.hidden = state === 'none';
+}
+
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  renderInstallAffordance();
+});
+
+// Once installed, drop the affordance for the rest of the session.
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  renderInstallAffordance();
+});
+
+$installButton.addEventListener('click', async () => {
+  if (!deferredInstallPrompt) return;
+  // A prompt event is single-use; clear it before awaiting so a double-click
+  // can't replay a consumed event.
+  const prompt = deferredInstallPrompt;
+  deferredInstallPrompt = null;
+  await prompt.prompt();
+  renderInstallAffordance();
+});
+
+renderInstallAffordance();
 
 // ─── Location resolution ─────────────────────────────────────────
 
