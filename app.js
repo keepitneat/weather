@@ -3,7 +3,7 @@
  * No dependencies, no tracking, no nonsense.
  * ──────────────────────────────────────────────────────────────── */
 
-import { iconFor, alertIconFor } from './icons.js';
+import { iconFor, alertIconFor, THEME_ICONS } from './icons.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
 import { titleCase } from './format.js';
 import { normalizeTheme, themeAttr } from './theme.js';
@@ -93,6 +93,8 @@ function syncThemeRadios(state) {
 }
 
 $themeRadios.forEach((radio) => {
+  const icon = radio.closest('label').querySelector('.theme-icon');
+  if (icon) icon.innerHTML = THEME_ICONS[radio.value] ?? '';
   radio.addEventListener('change', () => {
     if (radio.checked) applyTheme(radio.value);
   });
