@@ -100,6 +100,176 @@ h1 {
   outline-offset: 2px;
 }
 
+/* ─── Alerts ───────────────────────────────────────────────── */
+
+/* Stacked active-alert banners above the current-conditions card.
+   Severity drives the accent color; .alert--loud (tornado / severe-
+   thunderstorm warnings, or any Extreme alert) turns the whole banner
+   into a filled, high-contrast block you can't miss. */
+
+#alerts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin-bottom: 1.5rem;
+}
+
+.alert-stale {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Each banner is a collapsible <details>. Collapsed = event + expiry only;
+   expanded adds the headline, full description, and source link. Same
+   click-to-toggle pattern (and rotating chevron) as the forecast cards. */
+.alert {
+  border: 1px solid var(--alert-color, var(--border));
+  border-left-width: 4px;
+  border-radius: 0.5rem;
+  background: var(--alert-bg, var(--button-bg));
+  overflow: hidden;
+}
+
+/* Severity tiers — border/accent color everywhere; the faint tinted
+   background is gated behind @supports below. An invalid color-mix() would
+   NOT trigger .alert's `var(--alert-bg, var(--button-bg))` fallback (that only
+   fires when --alert-bg is *unset*, not when it resolves invalid) — it'd
+   compute to transparent. So on unsupported engines we leave --alert-bg unset
+   and the fallback kicks in cleanly. */
+.alert--minor { --alert-color: #b8860b; }
+.alert--moderate { --alert-color: #d97706; }
+.alert--severe { --alert-color: #ea580c; }
+.alert--extreme { --alert-color: #dc2626; }
+
+.alert--unknown {
+  --alert-color: var(--text-muted);
+  --alert-bg: var(--button-bg);
+}
+
+@supports (background: color-mix(in srgb, red, blue)) {
+  .alert--minor { --alert-bg: color-mix(in srgb, #b8860b 8%, var(--bg)); }
+  .alert--moderate { --alert-bg: color-mix(in srgb, #d97706 10%, var(--bg)); }
+  .alert--severe { --alert-bg: color-mix(in srgb, #ea580c 12%, var(--bg)); }
+  .alert--extreme { --alert-bg: color-mix(in srgb, #dc2626 14%, var(--bg)); }
+}
+
+/* Loud = filled block, white text, the can't-miss-it treatment. */
+.alert--loud {
+  background: var(--alert-color, #dc2626);
+  border-color: var(--alert-color, #dc2626);
+  color: #ffffff;
+}
+
+.alert--loud .alert-expiry,
+.alert--loud .alert-headline {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.alert--loud .alert-head::after {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.alert--loud .alert-link {
+  color: #ffffff;
+}
+
+/* Summary row — the always-visible collapsed state. */
+.alert-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.alert-head::-webkit-details-marker {
+  display: none;
+}
+
+/* Rotating chevron, mirroring the forecast cards. */
+.alert-head::after {
+  content: '›';
+  align-self: center;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--text-muted);
+  transition: transform 0.15s ease;
+}
+
+.alert[open] .alert-head::after {
+  transform: rotate(90deg);
+}
+
+/* currentColor follows the banner's text color, so the tint reads on both
+   the light tiered banners and the dark filled "loud" ones. */
+.alert-head:hover {
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.alert-icon {
+  display: inline-flex;
+  align-self: center;
+}
+
+/* Tint the icon with the severity color (overriding .icon's brand-green
+   default); on the filled "loud" banners it goes white with the text. */
+.alert-icon .icon {
+  color: var(--alert-color);
+}
+
+.alert--loud .alert-icon .icon {
+  color: #ffffff;
+}
+
+.alert-event {
+  font-weight: 600;
+  font-size: 1rem;
+  margin-right: auto; /* push expiry + chevron to the right */
+}
+
+.alert-expiry {
+  align-self: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tap/click to swap relative ↔ exact time; dotted underline hints there's
+   more behind it (the exact time is also in the title tooltip on hover). */
+.alert-expiry--toggle {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.alert-body {
+  padding: 0 1rem 0.75rem;
+}
+
+.alert-headline {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin: 0 0 0.375rem;
+}
+
+.alert-description {
+  font-size: 0.875rem;
+  white-space: pre-line;
+  margin: 0;
+}
+
+.alert-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 /* ─── Current conditions ───────────────────────────────────── */
 
 #current {

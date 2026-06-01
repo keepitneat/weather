@@ -67,3 +67,57 @@ export function iconFor(shortForecast, isDaytime) {
   // Clear, sunny, fair, or anything unrecognized — fall back to sun/moon
   return isDaytime ? WEATHER_ICONS.sun : WEATHER_ICONS.moon;
 }
+
+/* ─── Alert icons ──────────────────────────────────────────────────
+ * Same monochrome / currentColor treatment, keyed off the NWS `event`
+ * name. `warning` (the alert triangle) is the catch-all fallback. */
+export const ALERT_ICONS = {
+  warning: `<svg ${ICON_ATTRS}>
+    <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>`,
+  tornado: `<svg ${ICON_ATTRS}>
+    <line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="10" x2="18" y2="10"/>
+    <line x1="9" y1="14" x2="15" y2="14"/><path d="M12 14c0 3-1 4.5-3 6.5"/>
+  </svg>`,
+  thunderstorm: `<svg ${ICON_ATTRS}>
+    <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/>
+  </svg>`,
+  flood: `<svg ${ICON_ATTRS}>
+    <path d="M2 7c1.5-2 4.5-2 6 0s4.5 2 6 0 4.5-2 6 0"/>
+    <path d="M2 12c1.5-2 4.5-2 6 0s4.5 2 6 0 4.5-2 6 0"/>
+    <path d="M2 17c1.5-2 4.5-2 6 0s4.5 2 6 0 4.5-2 6 0"/>
+  </svg>`,
+  winter: `<svg ${ICON_ATTRS}>
+    <line x1="12" y1="3" x2="12" y2="21"/><line x1="3" y1="12" x2="21" y2="12"/>
+    <line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/><line x1="5.6" y1="18.4" x2="18.4" y2="5.6"/>
+  </svg>`,
+  heat: `<svg ${ICON_ATTRS}>
+    <path d="M14 14.76V5a2 2 0 0 0-4 0v9.76a4 4 0 1 0 4 0z"/>
+  </svg>`,
+  wind: `<svg ${ICON_ATTRS}>
+    <path d="M9.59 4.59A2 2 0 1 1 11 8H2"/>
+    <path d="M12.59 11.59A2 2 0 1 0 14 15H2"/>
+    <path d="M17.73 7.73A2.5 2.5 0 1 1 19.5 12H2"/>
+  </svg>`,
+  fire: `<svg ${ICON_ATTRS}>
+    <path d="M12 3C9 7 6 9 6 14a6 6 0 0 0 12 0c0-2-1-3.5-2-5 0 1.5-1 2.5-2 2.5C13 9 13 6 12 3z"/>
+  </svg>`,
+  fog: WEATHER_ICONS.fog,
+};
+
+// Pick an alert icon from the NWS `event` name ("Tornado Warning", "Flood
+// Watch", "Heat Advisory", …). Order matters where keywords could overlap;
+// anything unrecognized gets the generic warning triangle.
+export function alertIconFor(event) {
+  const e = (event || '').toLowerCase();
+  if (e.includes('tornado')) return ALERT_ICONS.tornado;
+  if (e.includes('thunderstorm') || e.includes('lightning')) return ALERT_ICONS.thunderstorm;
+  if (e.includes('flood') || e.includes('tsunami') || e.includes('surge')) return ALERT_ICONS.flood;
+  if (e.includes('snow') || e.includes('winter') || e.includes('blizzard') || e.includes('ice') || e.includes('freez') || e.includes('frost') || e.includes('cold') || e.includes('chill')) return ALERT_ICONS.winter;
+  if (e.includes('heat') || e.includes('hot')) return ALERT_ICONS.heat;
+  if (e.includes('fire') || e.includes('red flag') || e.includes('smoke')) return ALERT_ICONS.fire;
+  if (e.includes('wind') || e.includes('gale') || e.includes('hurricane') || e.includes('tropical')) return ALERT_ICONS.wind;
+  if (e.includes('fog') || e.includes('dust') || e.includes('haze')) return ALERT_ICONS.fog;
+  return ALERT_ICONS.warning;
+}
