@@ -633,6 +633,11 @@ function renderError() {
   $todayList.innerHTML = '';
   $forecastList.innerHTML = '';
   $status.hidden = true;
+  // No alerts are on screen here, so priming against an empty set is correct (not
+  // a backlog dump) — let the user opt in instead of leaving the toggle dead for
+  // the session. A later successful fetch then notifies for alerts they never saw.
+  lastAlerts = [];
+  enableNotifyToggle();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────
