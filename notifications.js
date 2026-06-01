@@ -28,8 +28,9 @@ export function newAlerts(alerts, seenIds) {
 
 // The next seen-id set: only ids still in the active list. Pruning
 // gone alerts keeps the store bounded; if a pruned alert returns later,
-// re-notifying once is the acceptable cost.
-export function mergeSeenIds(_priorSeen, activeAlerts) {
+// re-notifying once is the acceptable cost. This is a replace, not a
+// merge — the prior set is intentionally discarded.
+export function pruneSeenIds(activeAlerts) {
   const ids = (activeAlerts || []).map((a) => a?.id).filter(Boolean);
   return new Set(ids);
 }
@@ -94,12 +95,12 @@ export function notifyNewAlerts(alerts) {
 
   const fresh = newAlerts(alerts, loadSeenIds());
   fresh.forEach(fire);
-  saveSeenIds(mergeSeenIds(null, alerts));
+  saveSeenIds(pruneSeenIds(alerts));
 }
 
 // When the user enables notifications, prime the seen set with the
 // currently-active alerts so flipping the toggle doesn't dump a
 // backlog notification for every alert already on screen.
 export function primeSeenIds(alerts) {
-  saveSeenIds(mergeSeenIds(null, alerts));
+  saveSeenIds(pruneSeenIds(alerts));
 }

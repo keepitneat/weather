@@ -14,7 +14,9 @@
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
 
-  <!-- FOUC prevention: apply theme BEFORE CSS loads -->
+  <!-- FOUC prevention: apply theme BEFORE CSS loads. This duplicates theme.js's
+       valid-theme rule by hand because it must run before modules load; keep it
+       in sync with THEME_STATES in theme.js. -->
   <script>
     (function() {
       const saved = localStorage.getItem('theme');
@@ -30,12 +32,12 @@
   <header>
     <h1>Just the Weather</h1>
     <div class="settings">
-      <button id="settings-toggle" aria-label="Settings" aria-haspopup="true"
+      <button id="settings-toggle" aria-label="Settings" aria-haspopup="dialog"
               aria-expanded="false" aria-controls="settings-menu">
         <span aria-hidden="true">⚙</span>
       </button>
 
-      <div id="settings-menu" role="menu" aria-label="Settings" hidden>
+      <div id="settings-menu" aria-label="Settings" hidden>
         <fieldset class="settings-group">
           <legend>Theme</legend>
           <div class="theme-options" role="radiogroup" aria-label="Theme">
@@ -46,7 +48,7 @@
         </fieldset>
 
         <label id="notify-toggle" class="settings-group" hidden>
-          <input type="checkbox" id="notify-checkbox">
+          <input type="checkbox" id="notify-checkbox" disabled>
           <span>Notify me about weather alerts</span>
         </label>
       </div>

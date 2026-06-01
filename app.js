@@ -135,6 +135,26 @@ function onMenuKeydown(event) {
   if (event.key === 'Escape') {
     event.preventDefault();
     closeSettings({ restoreFocus: true });
+    return;
+  }
+  if (event.key === 'Tab') trapTab(event);
+}
+
+// Keep Tab inside the open menu. Radios are a roving-tabstop group, so only
+// the checked theme radio is a tab stop; query live each time so the notify
+// checkbox isn't counted while it's still disabled (cold boot).
+function trapTab(event) {
+  const focusable = [...$settingsMenu.querySelectorAll('input:not([disabled])')]
+    .filter((el) => el.type !== 'radio' || el.checked);
+  if (focusable.length === 0) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
   }
 }
 
@@ -150,6 +170,15 @@ $settingsToggle.addEventListener('click', (event) => {
 // against what's already on screen (no backlog notification dump).
 let lastAlerts = [];
 
+// The checkbox stays disabled (set in the HTML) until the first render lands,
+// so a user can't opt in before `lastAlerts` is populated. Priming against an
+// empty set during a cold boot would let the first live fetch fire a
+// notification for every already-active alert — the backlog dump priming
+// exists to prevent.
+function enableNotifyToggle() {
+  if (notificationsSupported()) $notifyCheckbox.disabled = false;
+}
+
 // Hide the toggle entirely where Notifications aren't supported (e.g. an
 // iOS Safari tab that isn't an installed PWA) — a dead checkbox is worse
 // than no checkbox.
@@ -158,9 +187,17 @@ if (notificationsSupported()) {
   $notifyCheckbox.checked = notifyEnabled();
   $notifyCheckbox.addEventListener('change', async () => {
     if ($notifyCheckbox.checked) {
-      const permission = await requestNotifyPermission();
+      // requestPermission can reject (e.g. insecure context) — treat a throw
+      // exactly like a non-granted result so the checkbox never gets stuck
+      // checked with the pref off.
+      let permission = 'denied';
+      try {
+        permission = await requestNotifyPermission();
+      } catch (err) {
+        console.warn('Notification permission request failed:', err);
+      }
       if (permission !== 'granted') {
-        // Denied or dismissed — revert the toggle; the OS won't re-prompt.
+        // Denied, dismissed, or thrown — revert the toggle; the OS won't re-prompt.
         $notifyCheckbox.checked = false;
         setNotifyEnabled(false);
         return;
@@ -371,11 +408,14 @@ async function fetchForecast({ forecastUrl, hourlyUrl, observationUrl, alertsUrl
 }
 
 function render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache }) {
-  renderAlerts(alerts || [], fromCache);
-  lastAlerts = alerts || [];
+  const safeAlerts = alerts || [];
+  renderAlerts(safeAlerts, fromCache);
+  lastAlerts = safeAlerts;
   // Cached alerts have already been notified on a prior live fetch, so only
   // diff-and-notify on fresh data — avoids re-firing every offline render.
-  if (!fromCache) notifyNewAlerts(lastAlerts);
+  if (!fromCache) notifyNewAlerts(safeAlerts);
+  // lastAlerts is now populated — safe to let the user opt in (see above).
+  enableNotifyToggle();
 
   const now = Date.now();
   const { currentPeriod, todayPeriods, futureDaytime, todayEnd } =

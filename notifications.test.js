@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   newAlerts,
-  mergeSeenIds,
+  pruneSeenIds,
   NOTIFY_PREF_KEY,
   SEEN_IDS_KEY,
 } from './notifications.js';
@@ -61,23 +61,23 @@ test('newAlerts: skips alerts with no id (can\'t de-dupe them safely)', () => {
   );
 });
 
-// ─── mergeSeenIds (persistence shape) ────────────────────────────
+// ─── pruneSeenIds (persistence shape) ────────────────────────────
 
-test('mergeSeenIds: seeds an empty store with the current ids', () => {
-  const merged = mergeSeenIds([], [alert('a'), alert('b')]);
-  assert.deepEqual([...merged].sort(), ['a', 'b']);
+test('pruneSeenIds: seeds the store with the current ids', () => {
+  const pruned = pruneSeenIds([alert('a'), alert('b')]);
+  assert.deepEqual([...pruned].sort(), ['a', 'b']);
 });
 
-test('mergeSeenIds: prunes ids no longer active so the store does not grow forever', () => {
-  // 'old' is gone from the active set, so it should drop out — re-firing is
-  // fine if that same alert ever returns, and we avoid an unbounded store.
-  const merged = mergeSeenIds(['old', 'a'], [alert('a'), alert('b')]);
-  assert.deepEqual([...merged].sort(), ['a', 'b']);
+test('pruneSeenIds: keeps only ids still active so the store does not grow forever', () => {
+  // Only the active alerts' ids survive — re-firing is fine if a dropped
+  // alert ever returns, and we avoid an unbounded store.
+  const pruned = pruneSeenIds([alert('a'), alert('b')]);
+  assert.deepEqual([...pruned].sort(), ['a', 'b']);
 });
 
-test('mergeSeenIds: ignores alerts without an id', () => {
-  const merged = mergeSeenIds([], [alert('a'), { event: 'no id' }]);
-  assert.deepEqual([...merged], ['a']);
+test('pruneSeenIds: ignores alerts without an id', () => {
+  const pruned = pruneSeenIds([alert('a'), { event: 'no id' }]);
+  assert.deepEqual([...pruned], ['a']);
 });
 
 // ─── exported storage keys ───────────────────────────────────────
