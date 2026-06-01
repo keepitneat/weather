@@ -35,10 +35,21 @@ const MAC_EDGE =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36 Edg/124.0';
 const DESKTOP_FIREFOX =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0';
+// Modern iPadOS Safari reports a Macintosh UA with no iPad token — identical to
+// a desktop Mac except that it exposes touch points.
+const IPADOS_DESKTOP_SAFARI = MAC_SAFARI;
 
 test('isIosSafari: true for iPhone and iPad Safari', () => {
   assert.equal(isIosSafari(IPHONE_SAFARI), true);
   assert.equal(isIosSafari(IPAD_SAFARI), true);
+});
+
+test('isIosSafari: true for iPadOS Safari masquerading as Macintosh (has touch points)', () => {
+  assert.equal(isIosSafari(IPADOS_DESKTOP_SAFARI, true), true);
+});
+
+test('isIosSafari: false for a real Mac (Macintosh UA, no touch points)', () => {
+  assert.equal(isIosSafari(IPADOS_DESKTOP_SAFARI, false), false);
 });
 
 test('isIosSafari: false for iOS Chrome and iOS Firefox (no PWA install there)', () => {
@@ -81,6 +92,14 @@ test('isFirefoxAndroid: false for missing / empty UA', () => {
 
 test('isMacosSafari: true for Safari on macOS', () => {
   assert.equal(isMacosSafari(MAC_SAFARI), true);
+});
+
+test('isMacosSafari: false for iPadOS masquerading as Macintosh (has touch points)', () => {
+  assert.equal(isMacosSafari(MAC_SAFARI, true), false);
+});
+
+test('isMacosSafari: true for a real Mac (Macintosh UA, no touch points)', () => {
+  assert.equal(isMacosSafari(MAC_SAFARI, false), true);
 });
 
 test('isMacosSafari: false for Chrome/Edge on macOS (they carry Safari in UA)', () => {

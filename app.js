@@ -147,12 +147,21 @@ function onMenuKeydown(event) {
   if (event.key === 'Tab') trapTab(event);
 }
 
-// Keep Tab inside the open menu. Radios are a roving-tabstop group, so only
-// the checked theme radio is a tab stop; query live each time so the notify
-// checkbox isn't counted while it's still disabled (cold boot).
+// Radios are a roving-tabstop group, so only the checked theme radio counts; a
+// hidden control (e.g. the install button on platforms without a stashed prompt)
+// can't take focus, so it's dropped too. Input order is DOM order, so first/last
+// of the result are the trap's wrap points.
+function focusableTabStops(elements) {
+  return [...elements].filter((el) => !el.hidden && (el.type !== 'radio' || el.checked));
+}
+
+// Keep Tab inside the open menu. Query live each time so disabled controls (the
+// notify checkbox on cold boot) and the hidden-or-shown install button reflect
+// current state. The button selector is what lets the Install button be trapped.
 function trapTab(event) {
-  const focusable = [...$settingsMenu.querySelectorAll('input:not([disabled])')]
-    .filter((el) => el.type !== 'radio' || el.checked);
+  const focusable = focusableTabStops(
+    $settingsMenu.querySelectorAll('input:not([disabled]), button:not([disabled])')
+  );
   if (focusable.length === 0) return;
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
@@ -222,32 +231,56 @@ const $installButton = document.getElementById('install-button');
 const $installIos = document.getElementById('install-ios');
 const $installFirefoxAndroid = document.getElementById('install-firefox-android');
 const $installMacosSafari = document.getElementById('install-macos-safari');
+const $installDismissed = document.getElementById('install-dismissed');
 
-// beforeinstallprompt is Chromium-only and fires once, early — capture it
-// before it can fire, preventDefault to stop the legacy mini-infobar, and
-// stash the event so the Install button can replay it on a user gesture.
+// beforeinstallprompt is Chromium-only and fires once: preventDefault suppresses
+// the legacy mini-infobar, and we stash the event so the Install button can
+// replay it on a user gesture (it can't be re-fired manually otherwise).
 let deferredInstallPrompt = null;
 
+// Set when the user dismisses the OS install dialog. We can't re-prompt without
+// a reload, so we keep the group visible with a manual hint instead of vanishing.
+let installPromptDismissed = false;
+
+// UA-derived platform flags are session-constant — compute them once. A
+// touch-capable Macintosh is iPadOS (see isIosSafari), so thread maxTouchPoints
+// through to the detectors.
+const isTouchDevice = navigator.maxTouchPoints > 1;
+const UA_FLAGS = {
+  iosSafari: isIosSafari(navigator.userAgent, isTouchDevice),
+  firefoxAndroid: isFirefoxAndroid(navigator.userAgent),
+  macosSafari: isMacosSafari(navigator.userAgent, isTouchDevice),
+};
+
+// Only standalone + promptAvailable change per render; merge them onto the
+// constant UA flags so it's obvious which inputs are reactive.
 function installContext() {
   return {
+    ...UA_FLAGS,
     standalone: isStandalone({
       displayModeStandalone: matchMedia('(display-mode: standalone)').matches,
       navigatorStandalone: navigator.standalone === true,
     }),
-    iosSafari: isIosSafari(navigator.userAgent),
-    firefoxAndroid: isFirefoxAndroid(navigator.userAgent),
-    macosSafari: isMacosSafari(navigator.userAgent),
     promptAvailable: deferredInstallPrompt !== null,
   };
 }
 
+const INSTALL_ELEMENTS = {
+  'install-button': $installButton,
+  'ios-instructions': $installIos,
+  'firefox-android-instructions': $installFirefoxAndroid,
+  'macos-safari-instructions': $installMacosSafari,
+};
+
 function renderInstallAffordance() {
   const state = installAffordance(installContext());
-  $installButton.hidden = state !== 'install-button';
-  $installIos.hidden = state !== 'ios-instructions';
-  $installFirefoxAndroid.hidden = state !== 'firefox-android-instructions';
-  $installMacosSafari.hidden = state !== 'macos-safari-instructions';
-  $installGroup.hidden = state === 'none';
+  for (const [name, el] of Object.entries(INSTALL_ELEMENTS)) {
+    el.hidden = name !== state;
+  }
+  // The dismiss hint rides alongside the Chromium button: once the user has
+  // dismissed the prompt the button is gone, but the hint keeps the entry point.
+  $installDismissed.hidden = !(installPromptDismissed && state === 'none');
+  $installGroup.hidden = state === 'none' && !installPromptDismissed;
 }
 
 window.addEventListener('beforeinstallprompt', (event) => {
@@ -259,6 +292,7 @@ window.addEventListener('beforeinstallprompt', (event) => {
 // Once installed, drop the affordance for the rest of the session.
 window.addEventListener('appinstalled', () => {
   deferredInstallPrompt = null;
+  installPromptDismissed = false;
   renderInstallAffordance();
 });
 
@@ -269,6 +303,10 @@ $installButton.addEventListener('click', async () => {
   const prompt = deferredInstallPrompt;
   deferredInstallPrompt = null;
   await prompt.prompt();
+  // On 'accepted' the appinstalled listener hides the affordance; on 'dismissed'
+  // keep the group visible with a manual hint, since the event can't be re-fired.
+  const { outcome } = await prompt.userChoice;
+  if (outcome === 'dismissed') installPromptDismissed = true;
   renderInstallAffordance();
 });
 
