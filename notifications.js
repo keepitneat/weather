@@ -1,15 +1,10 @@
 /* ─── Alert notifications (opt-in) ─────────────────────────────────
- * Fires a browser Notification for each genuinely-new weather alert.
+ * Fires a browser Notification per genuinely-new weather alert. Inline-only:
+ * true push-when-closed needs the Push API + a server, which breaks the
+ * no-backend principle — out of scope.
  *
- * v1 is inline-only: notifications fire when the page is open (or the SW
- * is awake). True push-when-closed needs the Push API + a server, which
- * breaks the no-backend principle — out of scope.
- *
- * Gotchas:
- *  - Notifications API needs a secure context (HTTPS); localhost is the
- *    dev exception.
- *  - iOS Safari only delivers notifications to PWAs added to the home
- *    screen — in a regular tab the permission request no-ops.
+ * Gotchas: the Notifications API needs a secure context (localhost excepted),
+ * and iOS Safari only delivers to home-screen PWAs — a regular tab no-ops.
  * ──────────────────────────────────────────────────────────────── */
 
 export const NOTIFY_PREF_KEY = 'notify-alerts';
@@ -26,10 +21,8 @@ export function newAlerts(alerts, seenIds) {
   return alerts.filter((a) => a?.id && !seen.has(a.id));
 }
 
-// The next seen-id set: only ids still in the active list. Pruning
-// gone alerts keeps the store bounded; if a pruned alert returns later,
-// re-notifying once is the acceptable cost. This is a replace, not a
-// merge — the prior set is intentionally discarded.
+// The next seen-id set: only ids still active (a replace, not a merge). Keeps
+// the store bounded; re-notifying once if a pruned alert returns is acceptable.
 export function pruneSeenIds(activeAlerts) {
   const ids = (activeAlerts || []).map((a) => a?.id).filter(Boolean);
   return new Set(ids);

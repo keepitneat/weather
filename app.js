@@ -170,11 +170,9 @@ $settingsToggle.addEventListener('click', (event) => {
 // against what's already on screen (no backlog notification dump).
 let lastAlerts = [];
 
-// The checkbox stays disabled (set in the HTML) until the first render lands,
-// so a user can't opt in before `lastAlerts` is populated. Priming against an
-// empty set during a cold boot would let the first live fetch fire a
-// notification for every already-active alert — the backlog dump priming
-// exists to prevent.
+// The checkbox stays disabled (in the HTML) until the first render populates
+// `lastAlerts` — opting in before then would prime against an empty set, so
+// the first live fetch would dump a notification for every active alert.
 function enableNotifyToggle() {
   if (notificationsSupported()) $notifyCheckbox.disabled = false;
 }
@@ -633,9 +631,8 @@ function renderError() {
   $todayList.innerHTML = '';
   $forecastList.innerHTML = '';
   $status.hidden = true;
-  // No alerts are on screen here, so priming against an empty set is correct (not
-  // a backlog dump) — let the user opt in instead of leaving the toggle dead for
-  // the session. A later successful fetch then notifies for alerts they never saw.
+  // Nothing on screen, so an empty set is the correct prime (not a backlog
+  // dump) — enable opt-in rather than leave the toggle dead for the session.
   lastAlerts = [];
   enableNotifyToggle();
 }

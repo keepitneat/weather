@@ -46,9 +46,7 @@ export function formatExpiryExact(iso) {
 
 // Content-stable fallback id for alerts NWS doesn't tag. A positional
 // `alert-${index}` would make the seen-id dedup track array position, not
-// identity — a new alert at index 0 would reuse a seen id (silently
-// suppressed) and reordering would make seen alerts look new. Hashing the
-// identifying fields keeps the id tied to the alert's content instead.
+// identity; hashing the identifying fields keeps the id tied to content.
 function stableAlertId(p) {
   const basis = [p.event, p.expires || p.ends, p.areaDesc, p.headline]
     .map((v) => v || '')

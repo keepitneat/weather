@@ -14,9 +14,8 @@
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
 
-  <!-- FOUC prevention: apply theme BEFORE CSS loads. This duplicates theme.js's
-       valid-theme rule by hand because it must run before modules load; keep it
-       in sync with THEME_STATES in theme.js. -->
+  <!-- FOUC prevention: apply theme before CSS loads (must run before modules,
+       so it can't import theme.js — keep its valid-theme rule in sync). -->
   <script>
     (function() {
       const saved = localStorage.getItem('theme');
