@@ -1,6 +1,5 @@
 /* ─── Just the Weather ─────────────────────────────────────────────
- * Vanilla JS PWA. Fetches NWS forecast for the user's location
- * (or NYC if geolocation denied/unavailable).
+ * Vanilla JS PWA. Fetches NWS forecast for the user's location (US only).
  * No dependencies, no tracking, no nonsense.
  * ──────────────────────────────────────────────────────────────── */
 
@@ -38,12 +37,10 @@ const STORAGE_KEYS = {
   fetchedAt: 'forecast-fetched-at',
 };
 
-// Tighter than 2hr throws away real readings for forecasts that are often
-// less accurate at the current hour.
+// Tighter than 2hr throws away real readings for forecasts that are often less accurate at the current hour.
 const STALE_OBSERVATION_MS = 2 * 60 * 60 * 1000;
 
-// Map NWS severity → CSS class suffix (lowercased). Anything unrecognized
-// (incl. "Unknown") gets the neutral .alert--unknown treatment.
+// Map NWS severity → CSS class suffix (lowercased). Anything unrecognized (incl. "Unknown") gets the neutral .alert--unknown treatment.
 const ALERT_SEVERITY_CLASS = {
   Extreme: 'extreme',
   Severe: 'severe',
@@ -382,9 +379,6 @@ function alertBanner(alert) {
   `;
 }
 
-// A <time> (phrasing content) is valid inside the interactive <summary>; a
-// role=button span isn't. Exact time rides on title + datetime; pointer users
-// can also tap to swap relative↔exact (see the #alerts click handler).
 function expiryChip(alert) {
   const relative = formatExpiry(alert.expires);
   const exact = formatExpiryExact(alert.expires);
@@ -394,8 +388,7 @@ function expiryChip(alert) {
      >${escapeHtml(relative)}</time>`;
 }
 
-// Tap to swap relative ↔ exact text; preventDefault stops the tap from also
-// toggling the card (the chip sits inside the <summary>). Delegated on #alerts.
+// Tap to swap relative ↔ exact text
 $alerts.addEventListener('click', (event) => {
   const chip = event.target.closest('.alert-expiry--toggle');
   if (!chip) return;
@@ -606,7 +599,6 @@ async function updateLocation() {
   localStorage.removeItem(STORAGE_KEYS.alertsUrl);
   localStorage.removeItem(STORAGE_KEYS.locationName);
   localStorage.removeItem(STORAGE_KEYS.stationName);
-  // Drop the cached alerts too — they belonged to the old location.
   localStorage.removeItem(STORAGE_KEYS.alerts);
   $alerts.hidden = true;
   $alerts.innerHTML = '';

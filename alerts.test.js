@@ -1,10 +1,3 @@
-/* ─── Just the Weather — alerts logic tests ───────────────────────
- * Run with: node --test
- * Pure-logic tests only (no DOM) — the alert view-model + sort + format
- * helpers in alerts.js. DOM rendering (renderAlerts) lives in app.js and
- * is verified manually, matching how the rest of the render layer is tested.
- * ──────────────────────────────────────────────────────────────── */
-
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
