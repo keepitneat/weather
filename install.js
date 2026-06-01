@@ -4,8 +4,9 @@
  * the menu wiring; this module just decides WHAT the UI should show.
  *
  * Gotchas this logic encodes: only Safari can add a PWA on iOS (Chrome/
- * Firefox on iOS are WebKit but have no install path), and an already-
- * installed (standalone) app has nothing to offer.
+ * Firefox on iOS are WebKit but have no install path); Chrome/Edge/Chromium
+ * carry "Safari" in their macOS UA so they must be excluded from the Safari
+ * branch; and an already-installed (standalone) app has nothing to offer.
  * ──────────────────────────────────────────────────────────────── */
 
 // iOS Safari only — iOS Chrome (CriOS) and Firefox (FxiOS) are WebKit but
@@ -18,6 +19,21 @@ export function isIosSafari(userAgent) {
   return !isOtherIosBrowser;
 }
 
+// Firefox on Android can install a PWA from its ⋮ menu. iOS Firefox (FxiOS)
+// can't, and Chromium Android uses beforeinstallprompt instead — both excluded.
+export function isFirefoxAndroid(userAgent) {
+  const ua = userAgent || '';
+  return /Android/.test(ua) && /Firefox/.test(ua);
+}
+
+// Safari on macOS (Sonoma+) installs via File → Add to Dock. Chrome, Edge, and
+// other Chromium browsers also carry "Safari" in their UA, so exclude them.
+export function isMacosSafari(userAgent) {
+  const ua = userAgent || '';
+  if (!/Macintosh/.test(ua) || !/Safari/.test(ua)) return false;
+  return !/Chrome|Chromium|Edg/.test(ua);
+}
+
 // Already installed: Chromium/desktop report it via the standalone display
 // mode; iOS Safari reports it via the legacy navigator.standalone flag.
 export function isStandalone({ displayModeStandalone = false, navigatorStandalone = false } = {}) {
@@ -25,14 +41,25 @@ export function isStandalone({ displayModeStandalone = false, navigatorStandalon
 }
 
 // What the settings menu should render, given the detected platform + whether
-// a beforeinstallprompt event has been stashed:
-//   'none'             — no affordance (installed, or an unsupported browser
-//                        that hasn't fired beforeinstallprompt)
-//   'ios-instructions' — manual Share → Add to Home Screen steps
-//   'install-button'   — a button that triggers the stashed prompt
-export function installAffordance({ standalone, iosSafari, promptAvailable }) {
+// a beforeinstallprompt event has been stashed. Priority order matters:
+//   'none'                          — installed, or a browser with no install path
+//   'install-button'                — Chromium stashed a prompt; one tap installs
+//   'ios-instructions'              — Share → Add to Home Screen
+//   'firefox-android-instructions'  — ⋮ menu → Install
+//   'macos-safari-instructions'     — File → Add to Dock
+// A stashed prompt is the only actionable signal, so it wins over the manual
+// branches; the manual branches are mutually exclusive in any real UA.
+export function installAffordance({
+  standalone,
+  iosSafari,
+  firefoxAndroid,
+  macosSafari,
+  promptAvailable,
+}) {
   if (standalone) return 'none';
   if (promptAvailable) return 'install-button';
   if (iosSafari) return 'ios-instructions';
+  if (firefoxAndroid) return 'firefox-android-instructions';
+  if (macosSafari) return 'macos-safari-instructions';
   return 'none';
 }

@@ -7,7 +7,13 @@ import { iconFor, alertIconFor, THEME_ICONS } from './icons.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
 import { titleCase } from './format.js';
 import { normalizeTheme, themeAttr } from './theme.js';
-import { isIosSafari, isStandalone, installAffordance } from './install.js';
+import {
+  isIosSafari,
+  isFirefoxAndroid,
+  isMacosSafari,
+  isStandalone,
+  installAffordance,
+} from './install.js';
 import {
   notificationsSupported,
   isEnabled as notifyEnabled,
@@ -214,6 +220,8 @@ if (notificationsSupported()) {
 const $installGroup = document.getElementById('install-group');
 const $installButton = document.getElementById('install-button');
 const $installIos = document.getElementById('install-ios');
+const $installFirefoxAndroid = document.getElementById('install-firefox-android');
+const $installMacosSafari = document.getElementById('install-macos-safari');
 
 // beforeinstallprompt is Chromium-only and fires once, early — capture it
 // before it can fire, preventDefault to stop the legacy mini-infobar, and
@@ -227,6 +235,8 @@ function installContext() {
       navigatorStandalone: navigator.standalone === true,
     }),
     iosSafari: isIosSafari(navigator.userAgent),
+    firefoxAndroid: isFirefoxAndroid(navigator.userAgent),
+    macosSafari: isMacosSafari(navigator.userAgent),
     promptAvailable: deferredInstallPrompt !== null,
   };
 }
@@ -235,6 +245,8 @@ function renderInstallAffordance() {
   const state = installAffordance(installContext());
   $installButton.hidden = state !== 'install-button';
   $installIos.hidden = state !== 'ios-instructions';
+  $installFirefoxAndroid.hidden = state !== 'firefox-android-instructions';
+  $installMacosSafari.hidden = state !== 'macos-safari-instructions';
   $installGroup.hidden = state === 'none';
 }
 
