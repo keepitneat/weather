@@ -22,6 +22,7 @@ import {
   notifyNewAlerts,
   primeSeenIds,
 } from './notifications.js';
+import { geocode, looksLikeZip } from './geocode.js';
 
 const NWS_ALERTS = (lat, lon) =>
   `https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`;
@@ -353,57 +354,63 @@ async function resolveLocation() {
   try {
     const position = await getBrowserPosition();
     const { latitude, longitude } = position.coords;
-
-    const res = await fetch(NWS_POINTS(latitude, longitude), {
-      headers: { 'Accept': 'application/geo+json' },
-    });
-    if (!res.ok) throw new Error(`Points API HTTP ${res.status}`);
-    const points = await res.json();
-
-    const forecastUrl = points.properties.forecast;
-    const hourlyUrl = points.properties.forecastHourly;
-    const stationsUrl = points.properties.observationStations;
-    // Alerts are queried by the user's actual point, not the gridpoint center —
-    // alert polygons are often finer-grained than a forecast grid cell.
-    const alertsUrl = NWS_ALERTS(latitude, longitude);
-    const loc = points.properties.relativeLocation.properties;
-    // relativeLocation = nearest populated place to the gridpoint CENTER, not the user.
-    const locationName = `${loc.city}, ${loc.state}`;
-
-    let observationUrl = null;
-    let stationName = null;
-    try {
-      const stationsRes = await fetch(stationsUrl, {
-        headers: { 'Accept': 'application/geo+json' },
-      });
-      if (stationsRes.ok) {
-        const stations = await stationsRes.json();
-        const station = stations.features?.[0]?.properties;
-        if (station?.stationIdentifier) {
-          observationUrl = `https://api.weather.gov/stations/${station.stationIdentifier}/observations/latest`;
-          stationName = station.name || station.stationIdentifier;
-        }
-      }
-    } catch (stationErr) {
-      console.warn('Station resolution failed; observations will fall back to hourly:', stationErr);
-    }
-
-    localStorage.setItem(STORAGE_KEYS.forecastUrl, forecastUrl);
-    localStorage.setItem(STORAGE_KEYS.hourlyUrl, hourlyUrl);
-    if (observationUrl) {
-      localStorage.setItem(STORAGE_KEYS.observationUrl, observationUrl);
-    }
-    localStorage.setItem(STORAGE_KEYS.alertsUrl, alertsUrl);
-    if (stationName) {
-      localStorage.setItem(STORAGE_KEYS.stationName, stationName);
-    }
-    localStorage.setItem(STORAGE_KEYS.locationName, locationName);
-
-    return { forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName };
+    return await resolveFromCoords(latitude, longitude);
   } catch (err) {
     console.warn('Location resolution failed; using fallback:', err);
     return FALLBACK;
   }
+}
+
+// Coords → NWS forecast/hourly/observation/alerts URLs + a display name, then
+// persist them. Shared by the geolocation path and the manual location search.
+// `nameOverride` lets the search use the user's matched address instead of the
+// gridpoint's relativeLocation (the nearest place to the grid CENTER, not them).
+async function resolveFromCoords(latitude, longitude, nameOverride = null) {
+  const res = await fetch(NWS_POINTS(latitude, longitude), {
+    headers: { 'Accept': 'application/geo+json' },
+  });
+  if (!res.ok) throw new Error(`Points API HTTP ${res.status}`);
+  const points = await res.json();
+
+  const forecastUrl = points.properties.forecast;
+  const hourlyUrl = points.properties.forecastHourly;
+  const stationsUrl = points.properties.observationStations;
+  // Alerts are queried by the user's actual point, not the gridpoint center —
+  // alert polygons are often finer-grained than a forecast grid cell.
+  const alertsUrl = NWS_ALERTS(latitude, longitude);
+  const loc = points.properties.relativeLocation.properties;
+  const locationName = nameOverride || `${loc.city}, ${loc.state}`;
+
+  let observationUrl = null;
+  let stationName = null;
+  try {
+    const stationsRes = await fetch(stationsUrl, {
+      headers: { 'Accept': 'application/geo+json' },
+    });
+    if (stationsRes.ok) {
+      const stations = await stationsRes.json();
+      const station = stations.features?.[0]?.properties;
+      if (station?.stationIdentifier) {
+        observationUrl = `https://api.weather.gov/stations/${station.stationIdentifier}/observations/latest`;
+        stationName = station.name || station.stationIdentifier;
+      }
+    }
+  } catch (stationErr) {
+    console.warn('Station resolution failed; observations will fall back to hourly:', stationErr);
+  }
+
+  localStorage.setItem(STORAGE_KEYS.forecastUrl, forecastUrl);
+  localStorage.setItem(STORAGE_KEYS.hourlyUrl, hourlyUrl);
+  if (observationUrl) {
+    localStorage.setItem(STORAGE_KEYS.observationUrl, observationUrl);
+  }
+  localStorage.setItem(STORAGE_KEYS.alertsUrl, alertsUrl);
+  if (stationName) {
+    localStorage.setItem(STORAGE_KEYS.stationName, stationName);
+  }
+  localStorage.setItem(STORAGE_KEYS.locationName, locationName);
+
+  return { forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName };
 }
 
 // Fire-and-forget: resolve the observation station from a cached forecast URL
@@ -541,6 +548,7 @@ function renderCurrent({ observation, hourlyPeriods, locationName, stationName }
   $current.innerHTML = `
     <div class="location">
       <span>${escapeHtml(locationName)}</span>
+      <button class="change-location" type="button">change</button>
       <button class="update-location" type="button">update</button>
     </div>
     <div class="temp">${conditions.tempF}°F</div>
@@ -838,9 +846,12 @@ function escapeHtml(str) {
   return div.innerHTML;
 }
 
-// ─── Manual location refresh ──────────────────────────────────────
+// ─── Manual location refresh + search ─────────────────────────────
 
-async function updateLocation() {
+// Drop every cached pointer to the current location's NWS endpoints so the
+// next resolve fetches fresh URLs (and fresh forecast/alerts) for whatever
+// location comes next — used by both the geolocation "update" and search.
+function clearLocationCache() {
   localStorage.removeItem(STORAGE_KEYS.forecastUrl);
   localStorage.removeItem(STORAGE_KEYS.hourlyUrl);
   localStorage.removeItem(STORAGE_KEYS.observationUrl);
@@ -848,20 +859,106 @@ async function updateLocation() {
   localStorage.removeItem(STORAGE_KEYS.locationName);
   localStorage.removeItem(STORAGE_KEYS.stationName);
   localStorage.removeItem(STORAGE_KEYS.alerts);
+}
+
+function showLocationLoading(message) {
   $alerts.hidden = true;
   $alerts.innerHTML = '';
-  $current.innerHTML = `<p class="loading">Updating location…</p>`;
+  $current.innerHTML = `<p class="loading">${escapeHtml(message)}</p>`;
   $todayList.innerHTML = '';
   $forecastList.innerHTML = '';
   $status.hidden = true;
+}
+
+// Re-run geolocation: forget the cached location, then resolve from scratch.
+async function updateLocation() {
+  clearLocationCache();
+  showLocationLoading('Updating location…');
   const location = await resolveLocation();
   await fetchForecast(location);
+}
+
+const $search = document.getElementById('location-search');
+const $searchInput = document.getElementById('location-search-input');
+const $searchError = document.getElementById('location-search-error');
+
+function openSearch() {
+  $search.hidden = false;
+  $searchError.hidden = true;
+  $searchInput.value = '';
+  $searchInput.focus();
+}
+
+function closeSearch() {
+  $search.hidden = true;
+  $searchError.hidden = true;
+}
+
+function showSearchError(message) {
+  $searchError.textContent = message;
+  $searchError.hidden = false;
+}
+
+// Geocode the query, take the top match, resolve its coords to NWS endpoints,
+// and render. Census is US-only and address-tuned, so a bare city can miss —
+// surface a "couldn't find" message in-form rather than wiping the screen.
+async function searchLocation(query) {
+  const trimmed = query.trim();
+  if (!trimmed) {
+    showSearchError('Enter a city or ZIP code.');
+    return;
+  }
+
+  $searchInput.disabled = true;
+  $searchError.hidden = true;
+  try {
+    const matches = await geocode(trimmed);
+    if (matches.length === 0) {
+      const hint = looksLikeZip(trimmed)
+        ? 'No US location found for that ZIP code.'
+        : 'No match — try "City, ST" (e.g. "Madison, WI") or a ZIP code.';
+      showSearchError(hint);
+      return;
+    }
+
+    const { name, lat, lon } = matches[0];
+    closeSearch();
+    showLocationLoading(`Loading weather for ${name}…`);
+    clearLocationCache();
+    const location = await resolveFromCoords(lat, lon, name);
+    await fetchForecast(location);
+  } catch (err) {
+    console.warn('Location search failed:', err);
+    showSearchError("Couldn't search right now. Check your connection and try again.");
+  } finally {
+    $searchInput.disabled = false;
+  }
 }
 
 $current.addEventListener('click', (event) => {
   if (event.target.closest('.update-location')) {
     updateLocation();
+  } else if (event.target.closest('.change-location')) {
+    openSearch();
   }
+});
+
+$search.addEventListener('submit', (event) => {
+  event.preventDefault();
+  searchLocation($searchInput.value);
+});
+
+$search.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeSearch();
+    $current.querySelector('.change-location')?.focus();
+  }
+});
+
+document.getElementById('location-search-cancel').addEventListener('click', () => {
+  closeSearch();
+  $current.querySelector('.change-location')?.focus();
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────

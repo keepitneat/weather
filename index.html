@@ -85,6 +85,18 @@
       <p class="loading">Loading…</p>
     </section>
 
+    <form id="location-search" aria-label="Search for a location" hidden>
+      <label for="location-search-input">City or ZIP code</label>
+      <div class="location-search-row">
+        <input id="location-search-input" type="search" name="location"
+               placeholder="e.g. Madison, WI or 53703"
+               autocomplete="off" autocapitalize="words" enterkeyhint="search">
+        <button type="submit">Search</button>
+        <button id="location-search-cancel" type="button">Cancel</button>
+      </div>
+      <p id="location-search-error" class="location-search-error" role="alert" hidden></p>
+    </form>
+
     <section id="forecast">
       <ol id="today-list" class="forecast-list"></ol>
       <h2>Extended Forecast</h2>
