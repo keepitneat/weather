@@ -8,6 +8,13 @@ import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
 import { titleCase } from './format.js';
 import { normalizeTheme, themeAttr } from './theme.js';
 import {
+  isIosSafari,
+  isFirefoxAndroid,
+  isMacosSafari,
+  isStandalone,
+  installAffordance,
+} from './install.js';
+import {
   notificationsSupported,
   isEnabled as notifyEnabled,
   setEnabled as setNotifyEnabled,
@@ -140,12 +147,21 @@ function onMenuKeydown(event) {
   if (event.key === 'Tab') trapTab(event);
 }
 
-// Keep Tab inside the open menu. Radios are a roving-tabstop group, so only
-// the checked theme radio is a tab stop; query live each time so the notify
-// checkbox isn't counted while it's still disabled (cold boot).
+// Radios are a roving-tabstop group, so only the checked theme radio counts; a
+// hidden control (e.g. the install button on platforms without a stashed prompt)
+// can't take focus, so it's dropped too. Input order is DOM order, so first/last
+// of the result are the trap's wrap points.
+function focusableTabStops(elements) {
+  return [...elements].filter((el) => !el.hidden && (el.type !== 'radio' || el.checked));
+}
+
+// Keep Tab inside the open menu. Query live each time so disabled controls (the
+// notify checkbox on cold boot) and the hidden-or-shown install button reflect
+// current state. The button selector is what lets the Install button be trapped.
 function trapTab(event) {
-  const focusable = [...$settingsMenu.querySelectorAll('input:not([disabled])')]
-    .filter((el) => el.type !== 'radio' || el.checked);
+  const focusable = focusableTabStops(
+    $settingsMenu.querySelectorAll('input:not([disabled]), button:not([disabled])')
+  );
   if (focusable.length === 0) return;
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
@@ -207,6 +223,93 @@ if (notificationsSupported()) {
     }
   });
 }
+
+// ─── Install affordance (platform-aware, lives in settings menu) ──
+
+const $installGroup = document.getElementById('install-group');
+const $installButton = document.getElementById('install-button');
+const $installIos = document.getElementById('install-ios');
+const $installFirefoxAndroid = document.getElementById('install-firefox-android');
+const $installMacosSafari = document.getElementById('install-macos-safari');
+const $installDismissed = document.getElementById('install-dismissed');
+
+// beforeinstallprompt is Chromium-only and fires once: preventDefault suppresses
+// the legacy mini-infobar, and we stash the event so the Install button can
+// replay it on a user gesture (it can't be re-fired manually otherwise).
+let deferredInstallPrompt = null;
+
+// Set when the user dismisses the OS install dialog. We can't re-prompt without
+// a reload, so we keep the group visible with a manual hint instead of vanishing.
+let installPromptDismissed = false;
+
+// UA-derived flags are session-constant — compute once. A touch-capable
+// Macintosh is iPadOS (see isIosSafari), so thread maxTouchPoints through.
+const isTouchDevice = navigator.maxTouchPoints > 1;
+const UA_FLAGS = {
+  iosSafari: isIosSafari(navigator.userAgent, isTouchDevice),
+  firefoxAndroid: isFirefoxAndroid(navigator.userAgent),
+  macosSafari: isMacosSafari(navigator.userAgent, isTouchDevice),
+};
+
+// standalone + promptAvailable are the reactive inputs; merge them onto the
+// session-constant UA flags.
+function installContext() {
+  return {
+    ...UA_FLAGS,
+    standalone: isStandalone({
+      displayModeStandalone: matchMedia('(display-mode: standalone)').matches,
+      navigatorStandalone: navigator.standalone === true,
+    }),
+    promptAvailable: deferredInstallPrompt !== null,
+  };
+}
+
+const INSTALL_ELEMENTS = {
+  'install-button': $installButton,
+  'ios-instructions': $installIos,
+  'firefox-android-instructions': $installFirefoxAndroid,
+  'macos-safari-instructions': $installMacosSafari,
+};
+
+function renderInstallAffordance() {
+  const state = installAffordance(installContext());
+  for (const [name, el] of Object.entries(INSTALL_ELEMENTS)) {
+    el.hidden = name !== state;
+  }
+  // The dismiss hint rides alongside the Chromium button: once the user has
+  // dismissed the prompt the button is gone, but the hint keeps the entry point.
+  $installDismissed.hidden = !(installPromptDismissed && state === 'none');
+  $installGroup.hidden = state === 'none' && !installPromptDismissed;
+}
+
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  renderInstallAffordance();
+});
+
+// Once installed, drop the affordance for the rest of the session.
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  installPromptDismissed = false;
+  renderInstallAffordance();
+});
+
+$installButton.addEventListener('click', async () => {
+  if (!deferredInstallPrompt) return;
+  // A prompt event is single-use; clear it before awaiting so a double-click
+  // can't replay a consumed event.
+  const prompt = deferredInstallPrompt;
+  deferredInstallPrompt = null;
+  await prompt.prompt();
+  // On 'accepted' the appinstalled listener hides the affordance; on 'dismissed'
+  // keep the group visible with a manual hint, since the event can't be re-fired.
+  const { outcome } = await prompt.userChoice;
+  if (outcome === 'dismissed') installPromptDismissed = true;
+  renderInstallAffordance();
+});
+
+renderInstallAffordance();
 
 // ─── Location resolution ─────────────────────────────────────────
 
