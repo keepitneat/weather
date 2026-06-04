@@ -24,6 +24,16 @@ import {
   resetSeenIds,
 } from './notifications.js';
 import { geocode, looksLikeZip } from './geocode.js';
+import {
+  getFavorites,
+  addFavorite,
+  removeFavorite,
+  findFavorite,
+  getCurrentFavoriteId,
+  setCurrentFavoriteId,
+  clearCurrentFavoriteId,
+  favoriteToLocation,
+} from './favorites.js';
 
 const NWS_ALERTS = (lat, lon) =>
   `https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`;
@@ -55,6 +65,10 @@ const STORAGE_KEYS = {
   alerts: 'alerts-cache',
   fetchedAt: 'forecast-fetched-at',
 };
+
+// The favorites module is pure over an injected store; localStorage is the
+// real one. Bound here so every call site shares one store.
+const favStore = localStorage;
 
 // Tighter than 2hr throws away real readings for forecasts that are often less accurate at the current hour.
 const STALE_OBSERVATION_MS = 2 * 60 * 60 * 1000;
@@ -405,7 +419,9 @@ async function resolveFromCoords(latitude, longitude, nameOverride = null) {
     console.warn('Station resolution failed; observations will fall back to hourly:', stationErr);
   }
 
-  return { forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName };
+  // lat/lon ride along so the caller can persist them on a favorite (favorites
+  // re-derive their alertsUrl from coords rather than storing it).
+  return { lat: latitude, lon: longitude, forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName };
 }
 
 // Write a resolved location's pointers to storage. Separated from
@@ -921,7 +937,9 @@ async function updateLocation() {
     const location = await resolveFromCoords(latitude, longitude);
 
     clearLocationCache();
+    clearCurrentFavoriteId(favStore);
     persistLocation(location);
+    setDisplayed(location, null);
     await fetchForecast(location, { primeNotifications: true });
   } catch (err) {
     console.warn('Location update failed; keeping previous location:', err);
@@ -930,6 +948,7 @@ async function updateLocation() {
     } else {
       const location = await resolveLocation();
       persistLocation(location);
+      setDisplayed(location, null);
       await fetchForecast(location);
     }
   }
@@ -1011,11 +1030,19 @@ async function searchLocation(query) {
     const { name, lat, lon } = matches[0];
     const location = await resolveFromCoords(lat, lon, name);
 
-    // Resolve succeeded — now it's safe to commit the switch.
+    // Resolve succeeded — now it's safe to commit the switch. A searched
+    // location is shown as Current-location-style (favoriteId null) until the
+    // user explicitly saves it, which makes "Add to favorites" appear.
     closeSearch();
     showLocationLoading(`Loading weather for ${name}…`);
     clearLocationCache();
     persistLocation(location);
+    // If the search landed on a place already saved, show it as that favorite
+    // (active pill, no redundant "Add"); otherwise it's an unsaved location.
+    const existing = getFavorites(favStore).find(
+      (f) => f.forecastUrl === location.forecastUrl
+    );
+    setDisplayed(location, existing ? existing.id : null);
     await fetchForecast(location, { primeNotifications: true });
     // renderCurrent rebuilt the toggle, so focus was dropped to <body> — land
     // it back on the (new) change button so keyboard users keep their place.
@@ -1052,10 +1079,174 @@ document.getElementById('location-search-cancel').addEventListener('click', () =
   closeSearch({ restoreFocus: true });
 });
 
+// ─── Favorites (saved locations + switcher) ───────────────────────
+
+const $switcher = document.getElementById('location-switcher');
+
+// The location currently on screen, kept so "Add to favorites" has the resolved
+// data (incl. lat/lon) to persist without a re-resolve. null until first render.
+let displayedLocation = null;
+// id of the favorite being shown, or null for Current location (the home entry).
+let displayedFavoriteId = null;
+
+// Snapshot what's displayed after every successful fetch so the switcher can
+// mark the active entry and "Add to favorites" can save the exact resolved data.
+function setDisplayed(location, favoriteId) {
+  displayedLocation = location;
+  displayedFavoriteId = favoriteId ?? null;
+  if (favoriteId) {
+    setCurrentFavoriteId(favStore, favoriteId);
+  } else {
+    clearCurrentFavoriteId(favStore);
+  }
+  renderSwitcher();
+}
+
+// A favorite is saveable only when we have its coords (a search/geolocation
+// resolve), and only when the shown location isn't already one. Current
+// location is never offered as a save (it's the always-present home entry).
+function canSaveDisplayed() {
+  if (!displayedLocation || displayedFavoriteId) return false;
+  if (!Number.isFinite(displayedLocation.lat) || !Number.isFinite(displayedLocation.lon)) return false;
+  const already = getFavorites(favStore).some(
+    (f) => f.forecastUrl === displayedLocation.forecastUrl
+  );
+  return !already;
+}
+
+function homePill() {
+  const active = displayedFavoriteId === null;
+  return `
+    <button class="loc-pill${active ? ' loc-pill--active' : ''}" type="button"
+            data-home="true" aria-pressed="${active}">
+      <span class="loc-pill-label">Current location</span>
+    </button>
+  `;
+}
+
+function favoritePill(fav) {
+  const active = fav.id === displayedFavoriteId;
+  return `
+    <span class="loc-pill-group">
+      <button class="loc-pill${active ? ' loc-pill--active' : ''}" type="button"
+              data-favorite-id="${escapeHtml(fav.id)}" aria-pressed="${active}">
+        <span class="loc-pill-label">${escapeHtml(fav.label)}</span>
+      </button>
+      <button class="loc-pill-remove" type="button" data-remove-id="${escapeHtml(fav.id)}"
+              aria-label="Remove ${escapeHtml(fav.label)} from saved locations">×</button>
+    </span>
+  `;
+}
+
+function addFavoriteButton() {
+  if (!canSaveDisplayed()) return '';
+  return `
+    <button class="loc-pill loc-pill--add" type="button" data-add-favorite="true">
+      + Add to favorites
+    </button>
+  `;
+}
+
+// Render the home entry + saved-favorite pills + the conditional add action.
+// Hidden entirely when there's nothing to switch to and nothing to save, so the
+// default single-location experience stays uncluttered.
+function renderSwitcher() {
+  const favorites = getFavorites(favStore);
+  const addButton = addFavoriteButton();
+  if (favorites.length === 0 && !addButton) {
+    $switcher.hidden = true;
+    $switcher.innerHTML = '';
+    return;
+  }
+  $switcher.innerHTML =
+    homePill() + favorites.map(favoritePill).join('') + addButton;
+  $switcher.hidden = false;
+}
+
+// Switch to a saved favorite. Reuses the NEAT-58 resolve-then-commit discipline:
+// the favorite already holds resolved URLs, so we snapshot the current view,
+// clear the stale cache + alert seen-set, persist the favorite's pointers, and
+// fetch. A fetch failure inside fetchForecast falls back to that favorite's own
+// cache, so there's no half-switched state to unwind here.
+async function switchToFavorite(id) {
+  const fav = findFavorite(favStore, id);
+  if (!fav) return;
+  const location = favoriteToLocation(fav);
+  showLocationLoading(`Loading weather for ${fav.label}…`);
+  clearLocationCache();
+  persistLocation(location);
+  setDisplayed(location, fav.id);
+  await fetchForecast(location, { primeNotifications: true });
+}
+
+// Switch back to the geolocation-resolved home. clearLocationCache wipes the
+// cached pointers, so resolveLocation re-runs geolocation (or falls back) rather
+// than reading the just-cleared cache.
+async function switchToCurrentLocation() {
+  showLocationLoading('Updating location…');
+  clearLocationCache();
+  clearCurrentFavoriteId(favStore);
+  const location = await resolveLocation();
+  persistLocation(location);
+  setDisplayed(location, null);
+  await fetchForecast(location, { primeNotifications: true });
+}
+
+function saveDisplayedAsFavorite() {
+  if (!canSaveDisplayed()) return;
+  const fav = addFavorite(favStore, displayedLocation);
+  // Now that it's saved, the displayed location IS that favorite — flip the
+  // pointer so the pill shows active and the add action disappears.
+  setDisplayed(displayedLocation, fav.id);
+}
+
+function removeDisplayedFavorite(id) {
+  const wasShowing = id === displayedFavoriteId;
+  removeFavorite(favStore, id);
+  if (wasShowing) {
+    switchToCurrentLocation();
+  } else {
+    renderSwitcher();
+  }
+}
+
+$switcher.addEventListener('click', (event) => {
+  const removeBtn = event.target.closest('[data-remove-id]');
+  if (removeBtn) {
+    removeDisplayedFavorite(removeBtn.dataset.removeId);
+    return;
+  }
+  if (event.target.closest('[data-add-favorite]')) {
+    saveDisplayedAsFavorite();
+    return;
+  }
+  if (event.target.closest('[data-home]')) {
+    if (displayedFavoriteId !== null) switchToCurrentLocation();
+    return;
+  }
+  const favBtn = event.target.closest('[data-favorite-id]');
+  if (favBtn && favBtn.dataset.favoriteId !== displayedFavoriteId) {
+    switchToFavorite(favBtn.dataset.favoriteId);
+  }
+});
+
 // ─── Boot ─────────────────────────────────────────────────────────
 
+// On boot, restore the favorite the user last viewed (if it still exists);
+// otherwise show Current location. A favorite switch reads cached URLs only —
+// no geocode/points round-trip.
 (async () => {
+  const savedId = getCurrentFavoriteId(favStore);
+  const fav = savedId ? findFavorite(favStore, savedId) : null;
+  if (fav) {
+    const location = favoriteToLocation(fav);
+    persistLocation(location);
+    setDisplayed(location, fav.id);
+    fetchForecast(location);
+    return;
+  }
   const location = await resolveLocation();
+  setDisplayed(location, null);
   fetchForecast(location);
 })();
 
