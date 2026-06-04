@@ -97,3 +97,12 @@ export function notifyNewAlerts(alerts) {
 export function primeSeenIds(alerts) {
   saveSeenIds(pruneSeenIds(alerts));
 }
+
+// Drop the whole seen set. The seen-ids are keyed by alert id only, not
+// by location, so they must be cleared on a deliberate location switch:
+// otherwise the new location's already-active alerts could be diffed
+// against the old location's ids. Callers re-prime against the new
+// location's alerts so switching doesn't dump a notification backlog.
+export function resetSeenIds() {
+  localStorage.removeItem(SEEN_IDS_KEY);
+}

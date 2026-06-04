@@ -21,6 +21,7 @@ import {
   requestPermission as requestNotifyPermission,
   notifyNewAlerts,
   primeSeenIds,
+  resetSeenIds,
 } from './notifications.js';
 import { geocode, looksLikeZip } from './geocode.js';
 
@@ -354,15 +355,20 @@ async function resolveLocation() {
   try {
     const position = await getBrowserPosition();
     const { latitude, longitude } = position.coords;
-    return await resolveFromCoords(latitude, longitude);
+    const resolved = await resolveFromCoords(latitude, longitude);
+    persistLocation(resolved);
+    return resolved;
   } catch (err) {
     console.warn('Location resolution failed; using fallback:', err);
     return FALLBACK;
   }
 }
 
-// Coords → NWS forecast/hourly/observation/alerts URLs + a display name, then
-// persist them. Shared by the geolocation path and the manual location search.
+// Coords → NWS forecast/hourly/observation/alerts URLs + a display name.
+// Pure resolution: it does the network work and returns a location object but
+// does NOT persist — callers persist only after a fully-successful resolve
+// (resolve-then-commit), so a mid-flight failure never strands the user with a
+// half-cleared cache. Shared by the geolocation path and the manual search.
 // `nameOverride` lets the search use the user's matched address instead of the
 // gridpoint's relativeLocation (the nearest place to the grid CENTER, not them).
 async function resolveFromCoords(latitude, longitude, nameOverride = null) {
@@ -399,18 +405,24 @@ async function resolveFromCoords(latitude, longitude, nameOverride = null) {
     console.warn('Station resolution failed; observations will fall back to hourly:', stationErr);
   }
 
-  localStorage.setItem(STORAGE_KEYS.forecastUrl, forecastUrl);
-  localStorage.setItem(STORAGE_KEYS.hourlyUrl, hourlyUrl);
-  if (observationUrl) {
-    localStorage.setItem(STORAGE_KEYS.observationUrl, observationUrl);
-  }
-  localStorage.setItem(STORAGE_KEYS.alertsUrl, alertsUrl);
-  if (stationName) {
-    localStorage.setItem(STORAGE_KEYS.stationName, stationName);
-  }
-  localStorage.setItem(STORAGE_KEYS.locationName, locationName);
-
   return { forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName };
+}
+
+// Write a resolved location's pointers to storage. Separated from
+// resolveFromCoords so the network work can complete into locals before any
+// cache is touched (resolve-then-commit). Null URLs/names are skipped so an
+// upgrade path that lacks an observation/station doesn't write `null`.
+function persistLocation(location) {
+  localStorage.setItem(STORAGE_KEYS.forecastUrl, location.forecastUrl);
+  localStorage.setItem(STORAGE_KEYS.hourlyUrl, location.hourlyUrl);
+  if (location.observationUrl) {
+    localStorage.setItem(STORAGE_KEYS.observationUrl, location.observationUrl);
+  }
+  localStorage.setItem(STORAGE_KEYS.alertsUrl, location.alertsUrl);
+  if (location.stationName) {
+    localStorage.setItem(STORAGE_KEYS.stationName, location.stationName);
+  }
+  localStorage.setItem(STORAGE_KEYS.locationName, location.locationName);
 }
 
 // Fire-and-forget: resolve the observation station from a cached forecast URL
@@ -447,7 +459,14 @@ async function resolveStationFromForecastUrl(forecastUrl) {
 
 // ─── Forecast fetch + render ──────────────────────────────────────
 
-async function fetchForecast({ forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName }) {
+// `primeNotifications` marks a deliberate location switch: the seen-set was
+// just reset, so we prime it against this location's active alerts (rather than
+// firing a notification for each) — the user picked this place; they don't want
+// a backlog dump. Later fetches for the same location notify normally.
+async function fetchForecast(
+  { forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName },
+  { primeNotifications = false } = {}
+) {
   try {
     // Observation + alerts fetches are best-effort — if either fails, we
     // still render the forecast. A failed alerts fetch must NOT blank out
@@ -492,7 +511,7 @@ async function fetchForecast({ forecastUrl, hourlyUrl, observationUrl, alertsUrl
     }
     localStorage.setItem(STORAGE_KEYS.fetchedAt, new Date().toISOString());
 
-    render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache: false });
+    render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache: false, primeNotifications });
   } catch (err) {
     console.warn('Live fetch failed; trying cache:', err);
     const cachedForecast = localStorage.getItem(STORAGE_KEYS.forecast);
@@ -515,13 +534,19 @@ async function fetchForecast({ forecastUrl, hourlyUrl, observationUrl, alertsUrl
   }
 }
 
-function render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache }) {
+function render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache, primeNotifications = false }) {
   const safeAlerts = alerts || [];
   renderAlerts(safeAlerts, fromCache);
   lastAlerts = safeAlerts;
-  // Cached alerts have already been notified on a prior live fetch, so only
-  // diff-and-notify on fresh data — avoids re-firing every offline render.
-  if (!fromCache) notifyNewAlerts(safeAlerts);
+  // On a deliberate location switch the seen-set was just reset, so prime it
+  // against this location's active alerts instead of notifying (no backlog dump
+  // for a place the user just chose). Cached renders were already notified on a
+  // prior live fetch. Otherwise diff-and-notify on fresh data.
+  if (primeNotifications) {
+    primeSeenIds(safeAlerts);
+  } else if (!fromCache) {
+    notifyNewAlerts(safeAlerts);
+  }
   // lastAlerts is now populated — safe to let the user opt in (see above).
   enableNotifyToggle();
 
@@ -548,7 +573,7 @@ function renderCurrent({ observation, hourlyPeriods, locationName, stationName }
   $current.innerHTML = `
     <div class="location">
       <span>${escapeHtml(locationName)}</span>
-      <button class="change-location" type="button">change</button>
+      <button class="change-location" type="button" aria-expanded="false" aria-controls="location-search">change</button>
       <button class="update-location" type="button">update</button>
     </div>
     <div class="temp">${conditions.tempF}°F</div>
@@ -848,9 +873,13 @@ function escapeHtml(str) {
 
 // ─── Manual location refresh + search ─────────────────────────────
 
-// Drop every cached pointer to the current location's NWS endpoints so the
-// next resolve fetches fresh URLs (and fresh forecast/alerts) for whatever
-// location comes next — used by both the geolocation "update" and search.
+// Drop EVERY piece of location-scoped state so nothing from the old location
+// can leak into the new one: the NWS endpoint pointers, the display/station
+// names, and all the data caches (forecast/hourly/observation/alerts). Also
+// reset the alert seen-set — it's keyed by alert id, not location, so without
+// this the new location's already-active alerts could be diffed against the
+// old location's ids and suppressed. Used by both "update" and search, and
+// only after a successful resolve (resolve-then-commit).
 function clearLocationCache() {
   localStorage.removeItem(STORAGE_KEYS.forecastUrl);
   localStorage.removeItem(STORAGE_KEYS.hourlyUrl);
@@ -858,7 +887,11 @@ function clearLocationCache() {
   localStorage.removeItem(STORAGE_KEYS.alertsUrl);
   localStorage.removeItem(STORAGE_KEYS.locationName);
   localStorage.removeItem(STORAGE_KEYS.stationName);
+  localStorage.removeItem(STORAGE_KEYS.forecast);
+  localStorage.removeItem(STORAGE_KEYS.hourly);
+  localStorage.removeItem(STORAGE_KEYS.observation);
   localStorage.removeItem(STORAGE_KEYS.alerts);
+  resetSeenIds();
 }
 
 function showLocationLoading(message) {
@@ -870,28 +903,80 @@ function showLocationLoading(message) {
   $status.hidden = true;
 }
 
-// Re-run geolocation: forget the cached location, then resolve from scratch.
+// Re-run geolocation. Resolve-then-commit: do the geolocation + NWS resolve
+// into a local FIRST, and only clear the old cache + persist once we have a
+// complete new location. If anything throws, the prior cache is intact, so we
+// restore the previous view instead of stranding the user on a loading screen
+// with a deleted location.
 async function updateLocation() {
-  clearLocationCache();
+  // Snapshot what's on screen so a failure can restore it rather than blanking.
+  const previousLocation = currentLocationFromCache();
   showLocationLoading('Updating location…');
-  const location = await resolveLocation();
-  await fetchForecast(location);
+  try {
+    if (!('geolocation' in navigator)) {
+      throw new Error('Geolocation is not available.');
+    }
+    const position = await getBrowserPosition();
+    const { latitude, longitude } = position.coords;
+    const location = await resolveFromCoords(latitude, longitude);
+
+    clearLocationCache();
+    persistLocation(location);
+    await fetchForecast(location, { primeNotifications: true });
+  } catch (err) {
+    console.warn('Location update failed; keeping previous location:', err);
+    if (previousLocation) {
+      await fetchForecast(previousLocation);
+    } else {
+      const location = await resolveLocation();
+      persistLocation(location);
+      await fetchForecast(location);
+    }
+  }
+}
+
+// Reconstruct the current location object from the cached pointers, or null if
+// nothing is cached. Used to restore the prior view when a location switch fails.
+function currentLocationFromCache() {
+  const forecastUrl = localStorage.getItem(STORAGE_KEYS.forecastUrl);
+  const hourlyUrl = localStorage.getItem(STORAGE_KEYS.hourlyUrl);
+  const locationName = localStorage.getItem(STORAGE_KEYS.locationName);
+  if (!forecastUrl || !hourlyUrl || !locationName) return null;
+  return {
+    forecastUrl,
+    hourlyUrl,
+    observationUrl: localStorage.getItem(STORAGE_KEYS.observationUrl) || null,
+    alertsUrl: localStorage.getItem(STORAGE_KEYS.alertsUrl) || null,
+    locationName,
+    stationName: localStorage.getItem(STORAGE_KEYS.stationName) || null,
+  };
 }
 
 const $search = document.getElementById('location-search');
 const $searchInput = document.getElementById('location-search-input');
 const $searchError = document.getElementById('location-search-error');
 
+// The "change" toggle is re-rendered by renderCurrent, so query it live each
+// time rather than caching a stale node. Mirrors the settings-menu's
+// aria-expanded pattern so screen readers learn the form appeared/closed.
+function changeLocationButton() {
+  return $current.querySelector('.change-location');
+}
+
 function openSearch() {
   $search.hidden = false;
   $searchError.hidden = true;
   $searchInput.value = '';
+  changeLocationButton()?.setAttribute('aria-expanded', 'true');
   $searchInput.focus();
 }
 
-function closeSearch() {
+function closeSearch({ restoreFocus = false } = {}) {
   $search.hidden = true;
   $searchError.hidden = true;
+  const toggle = changeLocationButton();
+  toggle?.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) toggle?.focus();
 }
 
 function showSearchError(message) {
@@ -900,8 +985,10 @@ function showSearchError(message) {
 }
 
 // Geocode the query, take the top match, resolve its coords to NWS endpoints,
-// and render. Census is US-only and address-tuned, so a bare city can miss —
-// surface a "couldn't find" message in-form rather than wiping the screen.
+// and render. Resolve-then-commit: the geocode AND the NWS resolve run while the
+// form is still open, so a miss or a network failure surfaces in-form (the
+// screen keeps the old location) instead of wiping it. Only once we hold a
+// complete new location do we close the form, clear the old cache, and persist.
 async function searchLocation(query) {
   const trimmed = query.trim();
   if (!trimmed) {
@@ -922,11 +1009,17 @@ async function searchLocation(query) {
     }
 
     const { name, lat, lon } = matches[0];
+    const location = await resolveFromCoords(lat, lon, name);
+
+    // Resolve succeeded — now it's safe to commit the switch.
     closeSearch();
     showLocationLoading(`Loading weather for ${name}…`);
     clearLocationCache();
-    const location = await resolveFromCoords(lat, lon, name);
-    await fetchForecast(location);
+    persistLocation(location);
+    await fetchForecast(location, { primeNotifications: true });
+    // renderCurrent rebuilt the toggle, so focus was dropped to <body> — land
+    // it back on the (new) change button so keyboard users keep their place.
+    changeLocationButton()?.focus();
   } catch (err) {
     console.warn('Location search failed:', err);
     showSearchError("Couldn't search right now. Check your connection and try again.");
@@ -951,14 +1044,12 @@ $search.addEventListener('submit', (event) => {
 $search.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     event.preventDefault();
-    closeSearch();
-    $current.querySelector('.change-location')?.focus();
+    closeSearch({ restoreFocus: true });
   }
 });
 
 document.getElementById('location-search-cancel').addEventListener('click', () => {
-  closeSearch();
-  $current.querySelector('.change-location')?.focus();
+  closeSearch({ restoreFocus: true });
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────

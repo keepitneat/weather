@@ -1,63 +1,67 @@
 /* ─── Geocoding (city / ZIP → lat/lon) ─────────────────────────────
- * Turns a free-text US location into coordinates via the US Census
- * Geocoder — free, no API key, US-only, which fits an NWS-backed app.
+ * Turns a free-text US location into coordinates via Nominatim
+ * (OpenStreetMap) — free, no API key, and (unlike the US Census
+ * Geocoder this replaced) it both serves CORS headers and resolves
+ * plain city names and bare ZIPs, which is all this box ever sends.
  *
- * Gotchas: the Census onelineaddress matcher is tuned for street
- * addresses, so bare city names sometimes return zero matches (a full
- * "City, ST" does best, and a 5-digit ZIP resolves reliably). It's
- * US-only by design — outside the US it returns nothing, which is fine
- * here since NWS is US-only too.
+ * Gotchas / constraints we design around:
+ *  - Usage policy caps ~1 req/sec and bans abusers. The UI is
+ *    submit-based (no as-you-type autocomplete), so one fetch per user
+ *    action stays well under the cap. `limit=1` keeps the payload small.
+ *  - A real User-Agent is requested by the policy, but browsers FORBID
+ *    setting that header — Nominatim accepts the Referer a browser sends
+ *    instead, so we set no UA here (a manual UA header would just throw).
+ *  - `countrycodes=us` matches the NWS-backed app's US-only scope.
+ *  - lat/lon come back as STRINGS — the parser coerces to numbers.
  *
  * Network is injected (fetchImpl) so the orchestration is unit-testable
  * without real requests; the parsing/URL helpers are pure.
  * ──────────────────────────────────────────────────────────────── */
 
-const CENSUS_ENDPOINT =
-  'https://geocoding.geo.census.gov/geocoder/locations/onelineaddress';
+const NOMINATIM_ENDPOINT = 'https://nominatim.openstreetmap.org/search';
 
-// Current-vintage public benchmark — the stable "use today's data" alias.
-const CENSUS_BENCHMARK = 'Public_AR_Current';
-
-// 5 digits, or ZIP+4. Used only to special-case the UI hint; the Census
-// endpoint accepts either a ZIP or a "City, ST" through the same address param.
+// 5 digits, or ZIP+4. Used only to special-case the UI's not-found hint;
+// Nominatim resolves a ZIP or a "City, ST" through the same `q` param.
 export function looksLikeZip(query) {
   return /^\d{5}(-\d{4})?$/.test((query || '').trim());
 }
 
-export function buildCensusUrl(query) {
-  const url = new URL(CENSUS_ENDPOINT);
-  url.searchParams.set('address', query);
-  url.searchParams.set('benchmark', CENSUS_BENCHMARK);
+export function buildGeocodeUrl(query) {
+  const url = new URL(NOMINATIM_ENDPOINT);
+  url.searchParams.set('q', query);
   url.searchParams.set('format', 'json');
+  url.searchParams.set('limit', '1');
+  url.searchParams.set('countrycodes', 'us');
+  url.searchParams.set('addressdetails', '1');
   return url.toString();
 }
 
-// Census coordinates are {x: lon, y: lat}. Drop any match without a usable
-// numeric pair so callers always get coordinates they can hand to NWS_POINTS.
-export function parseCensusMatches(data) {
-  const matches = data?.result?.addressMatches;
-  if (!Array.isArray(matches)) return [];
-  return matches
+// Nominatim returns an array of results with string lat/lon and a
+// display_name. Coerce coords to numbers and drop any result without a
+// usable numeric pair so callers always get coordinates for NWS_POINTS.
+export function parseNominatimResults(data) {
+  if (!Array.isArray(data)) return [];
+  return data
     .map((m) => ({
-      name: m?.matchedAddress ?? '',
-      lat: m?.coordinates?.y,
-      lon: m?.coordinates?.x,
+      name: m?.display_name ?? '',
+      lat: Number(m?.lat),
+      lon: Number(m?.lon),
     }))
-    .filter((m) => typeof m.lat === 'number' && typeof m.lon === 'number');
+    .filter((m) => Number.isFinite(m.lat) && Number.isFinite(m.lon));
 }
 
 // Geocode a query to an ordered list of {name, lat, lon} candidates.
-// Resolves to [] when the address is valid but matches nothing; throws on
+// Resolves to [] when the query is valid but matches nothing; throws on
 // an empty query or a transport/HTTP failure.
 export async function geocode(query, { fetchImpl = fetch } = {}) {
   const trimmed = (query || '').trim();
   if (!trimmed) throw new Error('Search is empty.');
 
-  const res = await fetchImpl(buildCensusUrl(trimmed), {
+  const res = await fetchImpl(buildGeocodeUrl(trimmed), {
     headers: { Accept: 'application/json' },
   });
   if (!res.ok) throw new Error(`Geocoder HTTP ${res.status}`);
 
   const data = await res.json();
-  return parseCensusMatches(data);
+  return parseNominatimResults(data);
 }
