@@ -1,19 +1,11 @@
 /* ─── PWA install affordance (pure logic) ──────────────────────────
  * Platform detection + the install-state machine. No DOM, no events —
- * app.js owns the beforeinstallprompt capture, the .prompt() call, and
- * the menu wiring; this module just decides WHAT the UI should show.
- *
- * Gotchas this logic encodes: only Safari can add a PWA on iOS (Chrome/
- * Firefox on iOS are WebKit but have no install path); Chrome/Edge/Chromium
- * carry "Safari" in their macOS UA so they must be excluded from the Safari
- * branch; and an already-installed (standalone) app has nothing to offer.
+ * app.js owns the prompt capture and menu wiring; this decides what to show.
  * ──────────────────────────────────────────────────────────────── */
 
-// iOS Safari only — iOS Chrome (CriOS) and Firefox (FxiOS) are WebKit but
-// can't add to the home screen, so they're explicitly excluded.
-// Modern iPadOS Safari reports a Macintosh UA with no iPad token; a touch-capable
-// Macintosh is treated as iPadOS. Heuristic, not bulletproof: a touch-capable Mac
-// could in theory report touch points and route here too.
+// iOS Safari only — iOS Chrome (CriOS) / Firefox (FxiOS) are WebKit but can't
+// add to the home screen. Modern iPadOS Safari reports a Macintosh UA with no
+// iPad token, so a touch-capable Macintosh is treated as iPadOS (heuristic).
 export function isIosSafari(userAgent, isTouchDevice = false) {
   const ua = userAgent || '';
   const isLegacyIos = /iPhone|iPad|iPod/.test(ua);
@@ -30,12 +22,9 @@ export function isFirefoxAndroid(userAgent) {
   return /Android/.test(ua) && /Firefox/.test(ua);
 }
 
-// Safari on macOS (Sonoma+) installs via File → Add to Dock. Chrome, Edge, and
-// other Chromium browsers also carry "Safari" in their UA, so exclude them.
-// Two known false-positive surfaces: a touch-capable Macintosh is iPadOS (routed
-// to the iOS branch, excluded here), and the Chromium exclusion is a denylist —
-// an odd Chromium fork or a macOS in-app webview that strips the Chrome token
-// would slip through to the Add-to-Dock steps it can't honor.
+// Safari on macOS (Sonoma+) installs via File → Add to Dock. Chrome/Edge/other
+// Chromium also carry "Safari" in their UA, so they're excluded (a denylist —
+// an odd Chromium fork stripping the Chrome token could slip through).
 export function isMacosSafari(userAgent, isTouchDevice = false) {
   const ua = userAgent || '';
   if (!/Macintosh/.test(ua) || !/Safari/.test(ua)) return false;
@@ -49,10 +38,9 @@ export function isStandalone({ displayModeStandalone = false, navigatorStandalon
   return Boolean(displayModeStandalone || navigatorStandalone);
 }
 
-// What the settings menu should render, given the detected platform + whether
-// a beforeinstallprompt event has been stashed. A stashed prompt wins over the
-// manual branches because it's the only actionable signal; the manual branches
-// are mutually exclusive in any real UA.
+// What the settings menu should render. A stashed prompt wins over the manual
+// branches (it's the only actionable signal); the manual branches are mutually
+// exclusive in any real UA.
 export function installAffordance({
   standalone,
   iosSafari,

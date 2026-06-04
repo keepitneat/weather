@@ -242,9 +242,8 @@ let deferredInstallPrompt = null;
 // a reload, so we keep the group visible with a manual hint instead of vanishing.
 let installPromptDismissed = false;
 
-// UA-derived platform flags are session-constant — compute them once. A
-// touch-capable Macintosh is iPadOS (see isIosSafari), so thread maxTouchPoints
-// through to the detectors.
+// UA-derived flags are session-constant — compute once. A touch-capable
+// Macintosh is iPadOS (see isIosSafari), so thread maxTouchPoints through.
 const isTouchDevice = navigator.maxTouchPoints > 1;
 const UA_FLAGS = {
   iosSafari: isIosSafari(navigator.userAgent, isTouchDevice),
@@ -252,8 +251,8 @@ const UA_FLAGS = {
   macosSafari: isMacosSafari(navigator.userAgent, isTouchDevice),
 };
 
-// Only standalone + promptAvailable change per render; merge them onto the
-// constant UA flags so it's obvious which inputs are reactive.
+// standalone + promptAvailable are the reactive inputs; merge them onto the
+// session-constant UA flags.
 function installContext() {
   return {
     ...UA_FLAGS,
