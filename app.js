@@ -1068,7 +1068,6 @@ function setDisplayed(location, favoriteId) {
     clearCurrentFavoriteId(favStore);
   }
   renderLocationMenu();
-  updateChipIcon();
 }
 
 // Flip the chip's leading icon between pin (Current location) and star (a saved
@@ -1199,6 +1198,10 @@ function saveDisplayedAsFavorite() {
   // Now that it's saved, the displayed location IS that favorite — flip the
   // pointer so the pill shows active and the add action disappears.
   setDisplayed(displayedLocation, fav.id);
+  // The only path that flips the icon WITHOUT an imminent render(): switch
+  // paths repaint the chip (icon + name together) via render(), but saving in
+  // place doesn't re-fetch, so flip the icon explicitly here.
+  updateChipIcon();
 }
 
 function removeDisplayedFavorite(id) {
