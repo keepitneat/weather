@@ -576,12 +576,20 @@ function render({ periods, hourlyPeriods, observation, alerts, locationName, sta
   renderStatus(fromCache);
 }
 
+// Trim a long NWS station name to its first comma-segment, capped, so the
+// observed line stays one tidy line.
+function shortStationName(name) {
+  if (!name) return '';
+  const first = String(name).split(',')[0].trim();
+  return first.length > 28 ? `${first.slice(0, 27).trimEnd()}…` : first;
+}
+
 function renderCurrent({ observation, hourlyPeriods, locationName, stationName }) {
   const conditions = currentConditions(observation, hourlyPeriods);
   // City as headline; station name (often ALL-CAPS airport jargon) goes in the observed-at line as provenance.
   let observedLine;
   if (conditions.fromObservation) {
-    const stationLabel = stationName ? ` at ${titleCase(stationName)}` : '';
+    const stationLabel = stationName ? ` at ${titleCase(shortStationName(stationName))}` : '';
     observedLine = `Observed ${formatRelative(conditions.observedAt)}${stationLabel}`;
   } else {
     observedLine = 'Latest forecast (no station data)';
