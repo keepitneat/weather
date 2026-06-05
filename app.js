@@ -585,6 +585,21 @@ function shortStationName(name) {
   return first.length > 28 ? `${first.slice(0, 27).trimEnd()}…` : first;
 }
 
+// ─── Location chip icons + displayed-location state ────────────────
+// Defined above renderCurrent (which reads displayed* and the SVGs); the rest
+// of the favorites/menu code lives further down.
+
+const PIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>';
+const STAR_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true"><polygon points="12,3 14.5,8.7 20.7,9.4 16,13.7 17.3,19.8 12,16.7 6.7,19.8 8,13.7 3.3,9.4 9.5,8.7"/></svg>';
+const SEARCH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+
+// The location currently on screen, kept so "Add to favorites" has the resolved
+// data (incl. lat/lon) to persist without a re-resolve. null until first render.
+let displayedLocation = null;
+// id of the favorite being shown, or null for Current location (the home entry).
+let displayedFavoriteId = null;
+
 function renderCurrent({ observation, hourlyPeriods, locationName, stationName }) {
   const conditions = currentConditions(observation, hourlyPeriods);
   // City as headline; station name (often ALL-CAPS airport jargon) goes in the observed-at line as provenance.
@@ -597,7 +612,7 @@ function renderCurrent({ observation, hourlyPeriods, locationName, stationName }
   }
   $current.innerHTML = `
     <div class="location">
-      <button class="loc-chip" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="location-menu">
+      <button class="loc-chip" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="location-menu">
         ${displayedFavoriteId === null ? PIN_SVG : STAR_SVG}
         <span class="loc-chip-name">${escapeHtml(locationName)}</span>
         <span class="caret" aria-hidden="true">▾</span>
@@ -605,11 +620,13 @@ function renderCurrent({ observation, hourlyPeriods, locationName, stationName }
       <div class="loc-actions">
         <button class="refresh-location" type="button" aria-label="Refresh" title="Refresh this location">↻</button>
       </div>
-      <div id="location-menu" role="menu" aria-label="Location" hidden></div>
+      <div id="location-menu" aria-label="Location" hidden></div>
     </div>
-    <div class="temp">${conditions.tempF}°F</div>
-    <div class="condition">${iconFor(conditions.shortForecast, conditions.isDaytime)} ${escapeHtml(conditions.shortForecast)}</div>
-    <div class="observed-at">${observedLine}</div>
+    <div aria-live="polite">
+      <div class="temp">${conditions.tempF}°F</div>
+      <div class="condition">${iconFor(conditions.shortForecast, conditions.isDaytime)} ${escapeHtml(conditions.shortForecast)}</div>
+      <div class="observed-at">${observedLine}</div>
+    </div>
   `;
 }
 
@@ -1040,15 +1057,6 @@ async function searchLocation(query, { onError = () => {} } = {}) {
 
 // ─── Favorites (saved locations + location menu) ───────────────────
 
-const PIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>';
-const STAR_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true"><polygon points="12,3 14.5,8.7 20.7,9.4 16,13.7 17.3,19.8 12,16.7 6.7,19.8 8,13.7 3.3,9.4 9.5,8.7"/></svg>';
-
-// The location currently on screen, kept so "Add to favorites" has the resolved
-// data (incl. lat/lon) to persist without a re-resolve. null until first render.
-let displayedLocation = null;
-// id of the favorite being shown, or null for Current location (the home entry).
-let displayedFavoriteId = null;
-
 // Snapshot what's displayed after every successful fetch so the switcher can
 // mark the active entry and "Add to favorites" can save the exact resolved data.
 function setDisplayed(location, favoriteId) {
@@ -1091,22 +1099,22 @@ let menuSearchOpen = false; // menu showing its inline search sub-state
 
 function locationMenuItems() {
   const homeActive = displayedFavoriteId === null;
-  const home = `<button class="loc-item${homeActive ? ' loc-item--active' : ''}" type="button" role="menuitem" data-home="true">
+  const home = `<button class="loc-item${homeActive ? ' loc-item--active' : ''}" type="button" data-home="true">
       ${PIN_SVG}<span>Current location</span>${homeActive ? '<span class="check" aria-hidden="true">✓</span>' : ''}
     </button>`;
   const favs = getFavorites(favStore).map((f) => {
     const active = f.id === displayedFavoriteId;
     return `<div class="loc-item-row" role="none">
-        <button class="loc-item${active ? ' loc-item--active' : ''}" type="button" role="menuitem" data-favorite-id="${escapeHtml(f.id)}">
+        <button class="loc-item${active ? ' loc-item--active' : ''}" type="button" data-favorite-id="${escapeHtml(f.id)}">
           ${STAR_SVG}<span>${escapeHtml(f.label)}</span>
         </button>
         <button class="loc-item-remove" type="button" data-remove-id="${escapeHtml(f.id)}" aria-label="Remove ${escapeHtml(f.label)}">×</button>
       </div>`;
   }).join('');
   const save = canSaveDisplayed()
-    ? `<button class="loc-item" type="button" role="menuitem" data-save="true">＋ Save this location</button>`
+    ? `<button class="loc-item" type="button" data-save="true">${PLUS_SVG} Save this location</button>`
     : '';
-  const search = `<button class="loc-item" type="button" role="menuitem" data-search="true">🔍 Search a place…</button>`;
+  const search = `<button class="loc-item" type="button" data-search="true">${SEARCH_SVG} Search a place…</button>`;
   return `${home}${favs}<div class="loc-menu-sep"></div>${search}${save}`;
 }
 
