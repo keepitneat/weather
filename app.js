@@ -550,21 +550,27 @@ async function fetchForecast(
   }
 }
 
-function render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache, primeNotifications = false }) {
-  const safeAlerts = alerts || [];
-  renderAlerts(safeAlerts, fromCache);
-  lastAlerts = safeAlerts;
-  // On a deliberate location switch the seen-set was just reset, so prime it
-  // against this location's active alerts instead of notifying (no backlog dump
-  // for a place the user just chose). Cached renders were already notified on a
-  // prior live fetch. Otherwise diff-and-notify on fresh data.
+// Prime or diff-and-notify the alert seen-set for this render, and record the
+// alerts so enabling the toggle can prime against what's on screen. On a
+// deliberate location switch the seen-set was just reset, so prime against this
+// location's active alerts instead of notifying (no backlog dump for a place the
+// user just chose). Cached renders were already notified on a prior live fetch.
+// Otherwise diff-and-notify on fresh data.
+function reconcileAlertNotifications({ alerts, fromCache, primeNotifications }) {
+  lastAlerts = alerts;
   if (primeNotifications) {
-    primeSeenIds(safeAlerts);
+    primeSeenIds(alerts);
   } else if (!fromCache) {
-    notifyNewAlerts(safeAlerts);
+    notifyNewAlerts(alerts);
   }
   // lastAlerts is now populated — safe to let the user opt in (see above).
   enableNotifyToggle();
+}
+
+function render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache, primeNotifications = false }) {
+  const safeAlerts = alerts || [];
+  renderAlerts(safeAlerts, fromCache);
+  reconcileAlertNotifications({ alerts: safeAlerts, fromCache, primeNotifications });
 
   const now = Date.now();
   const { currentPeriod, todayPeriods, futureDaytime, todayEnd } =
@@ -1043,10 +1049,13 @@ async function searchLocation(query, { onError = () => {} } = {}) {
 
     showLocationLoading(`Loading weather for ${name}…`);
     clearLocationCache();
-    persistLocation(location);
+    // If the searched place is already saved, show the FAVORITE's stored data
+    // (its custom label/station) rather than the bare geocode name.
     const existing = getFavorites(favStore).find((f) => f.forecastUrl === location.forecastUrl);
-    setDisplayed(location, existing ? existing.id : null);
-    await fetchForecast(location, { primeNotifications: true });
+    const displayLocation = existing ? favoriteToLocation(existing) : location;
+    persistLocation(displayLocation);
+    setDisplayed(displayLocation, existing ? existing.id : null);
+    await fetchForecast(displayLocation, { primeNotifications: true });
     return true;
   } catch (err) {
     console.warn('Location search failed:', err);
