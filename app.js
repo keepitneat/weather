@@ -4,6 +4,7 @@
  * ──────────────────────────────────────────────────────────────── */
 
 import { iconFor, alertIconFor, THEME_ICONS, UI_ICONS } from './icons.js';
+import { chipMarkup, menuMarkup, searchMarkup } from './location-menu.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
 import { titleCase } from './format.js';
 import { normalizeTheme, themeAttr } from './theme.js';
@@ -610,11 +611,7 @@ function renderCurrent({ observation, hourlyPeriods, locationName, stationName }
   }
   $current.innerHTML = `
     <div class="location">
-      <button class="loc-chip" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="location-menu">
-        ${displayedFavoriteId === null ? UI_ICONS.pin : UI_ICONS.star}
-        <span class="loc-chip-name">${escapeHtml(locationName)}</span>
-        <span class="caret" aria-hidden="true">▾</span>
-      </button>
+      ${chipMarkup({ isCurrent: displayedFavoriteId === null, name: locationName })}
       <div class="loc-actions">
         <button class="refresh-location" type="button" aria-label="Refresh" title="Refresh this location">↻</button>
       </div>
@@ -1099,39 +1096,13 @@ const menuEl = () => document.getElementById('location-menu');
 const chipEl = () => $current.querySelector('.loc-chip');
 let menuSearchOpen = false; // menu showing its inline search sub-state
 
-function locationMenuItems() {
-  const homeActive = displayedFavoriteId === null;
-  const home = `<button class="loc-item${homeActive ? ' loc-item--active' : ''}" type="button" data-home="true">
-      ${UI_ICONS.pin}<span>Current location</span>${homeActive ? '<span class="check" aria-hidden="true">✓</span>' : ''}
-    </button>`;
-  const favs = getFavorites(favStore).map((f) => {
-    const active = f.id === displayedFavoriteId;
-    return `<div class="loc-item-row" role="none">
-        <button class="loc-item${active ? ' loc-item--active' : ''}" type="button" data-favorite-id="${escapeHtml(f.id)}">
-          ${UI_ICONS.star}<span>${escapeHtml(f.label)}</span>
-        </button>
-        <button class="loc-item-remove" type="button" data-remove-id="${escapeHtml(f.id)}" aria-label="Remove ${escapeHtml(f.label)}">×</button>
-      </div>`;
-  }).join('');
-  const save = canSaveDisplayed()
-    ? `<button class="loc-item" type="button" data-save="true">${UI_ICONS.add} Save this location</button>`
-    : '';
-  const search = `<button class="loc-item" type="button" data-search="true">${UI_ICONS.search} Search a place…</button>`;
-  return `${home}${favs}<div class="loc-menu-sep"></div>${search}${save}`;
-}
-
-function searchSubState() {
-  return `<div class="loc-menu-search">
-      <input id="loc-menu-input" type="text" placeholder="City, ST or ZIP" autocomplete="off" aria-label="Search location">
-      <button id="loc-menu-go" type="button">Go</button>
-    </div>
-    <div class="loc-menu-hint">City, ST (e.g. "Madison, WI") or a ZIP works best · Esc to cancel</div>
-    <div class="loc-menu-error" id="loc-menu-error" hidden></div>`;
-}
-
 function renderLocationMenu() {
   const el = menuEl();
-  if (el) el.innerHTML = menuSearchOpen ? searchSubState() : locationMenuItems();
+  if (el) {
+    el.innerHTML = menuSearchOpen
+      ? searchMarkup()
+      : menuMarkup({ favorites: getFavorites(favStore), activeFavoriteId: displayedFavoriteId, canSave: canSaveDisplayed() });
+  }
 }
 
 function openMenu() {
