@@ -63,6 +63,16 @@ export const THEME_ICONS = {
   dark: WEATHER_ICONS.moon,
 };
 
+// Location chip + menu glyphs. Own attrs (the star is filled, stroke widths
+// vary), so they're kept verbatim rather than forced through ICON_ATTRS; they're
+// sized/colored by the .loc-chip / .loc-item CSS via currentColor.
+export const UI_ICONS = {
+  pin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>',
+  star: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true"><polygon points="12,3 14.5,8.7 20.7,9.4 16,13.7 17.3,19.8 12,16.7 6.7,19.8 8,13.7 3.3,9.4 9.5,8.7"/></svg>',
+  search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
+  add: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
+};
+
 // Match-keys in priority order. Each entry's words are tested against the
 // lowercased condition string; first hit wins, so put specific (precipitation)
 // before general (cloud cover). `daySky`/`nightSky` are placeholders resolved

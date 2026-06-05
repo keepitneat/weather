@@ -3,7 +3,7 @@
  * No dependencies, no tracking, no nonsense.
  * ──────────────────────────────────────────────────────────────── */
 
-import { iconFor, alertIconFor, THEME_ICONS } from './icons.js';
+import { iconFor, alertIconFor, THEME_ICONS, UI_ICONS } from './icons.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
 import { titleCase } from './format.js';
 import { normalizeTheme, themeAttr } from './theme.js';
@@ -592,14 +592,6 @@ function shortStationName(name) {
 }
 
 // ─── Location chip icons + displayed-location state ────────────────
-// Defined above renderCurrent (which reads displayed* and the SVGs); the rest
-// of the favorites/menu code lives further down.
-
-const PIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>';
-const STAR_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true"><polygon points="12,3 14.5,8.7 20.7,9.4 16,13.7 17.3,19.8 12,16.7 6.7,19.8 8,13.7 3.3,9.4 9.5,8.7"/></svg>';
-const SEARCH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
-const PLUS_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
-
 // The location currently on screen, kept so "Add to favorites" has the resolved
 // data (incl. lat/lon) to persist without a re-resolve. null until first render.
 let displayedLocation = null;
@@ -619,7 +611,7 @@ function renderCurrent({ observation, hourlyPeriods, locationName, stationName }
   $current.innerHTML = `
     <div class="location">
       <button class="loc-chip" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="location-menu">
-        ${displayedFavoriteId === null ? PIN_SVG : STAR_SVG}
+        ${displayedFavoriteId === null ? UI_ICONS.pin : UI_ICONS.star}
         <span class="loc-chip-name">${escapeHtml(locationName)}</span>
         <span class="caret" aria-hidden="true">▾</span>
       </button>
@@ -1086,7 +1078,7 @@ function updateChipIcon() {
   const svg = chipEl()?.querySelector('svg');
   // Assigning outerHTML detaches the old node and inserts fresh markup; the
   // local `svg` ref goes stale here and is intentionally not reused afterward.
-  if (svg) svg.outerHTML = displayedFavoriteId === null ? PIN_SVG : STAR_SVG;
+  if (svg) svg.outerHTML = displayedFavoriteId === null ? UI_ICONS.pin : UI_ICONS.star;
 }
 
 // A favorite is saveable only when we have its coords (a search/geolocation
@@ -1110,21 +1102,21 @@ let menuSearchOpen = false; // menu showing its inline search sub-state
 function locationMenuItems() {
   const homeActive = displayedFavoriteId === null;
   const home = `<button class="loc-item${homeActive ? ' loc-item--active' : ''}" type="button" data-home="true">
-      ${PIN_SVG}<span>Current location</span>${homeActive ? '<span class="check" aria-hidden="true">✓</span>' : ''}
+      ${UI_ICONS.pin}<span>Current location</span>${homeActive ? '<span class="check" aria-hidden="true">✓</span>' : ''}
     </button>`;
   const favs = getFavorites(favStore).map((f) => {
     const active = f.id === displayedFavoriteId;
     return `<div class="loc-item-row" role="none">
         <button class="loc-item${active ? ' loc-item--active' : ''}" type="button" data-favorite-id="${escapeHtml(f.id)}">
-          ${STAR_SVG}<span>${escapeHtml(f.label)}</span>
+          ${UI_ICONS.star}<span>${escapeHtml(f.label)}</span>
         </button>
         <button class="loc-item-remove" type="button" data-remove-id="${escapeHtml(f.id)}" aria-label="Remove ${escapeHtml(f.label)}">×</button>
       </div>`;
   }).join('');
   const save = canSaveDisplayed()
-    ? `<button class="loc-item" type="button" data-save="true">${PLUS_SVG} Save this location</button>`
+    ? `<button class="loc-item" type="button" data-save="true">${UI_ICONS.add} Save this location</button>`
     : '';
-  const search = `<button class="loc-item" type="button" data-search="true">${SEARCH_SVG} Search a place…</button>`;
+  const search = `<button class="loc-item" type="button" data-search="true">${UI_ICONS.search} Search a place…</button>`;
   return `${home}${favs}<div class="loc-menu-sep"></div>${search}${save}`;
 }
 
