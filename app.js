@@ -574,6 +574,7 @@ function render({ periods, hourlyPeriods, observation, alerts, locationName, sta
   renderToday({ currentPeriod, todayPeriods, hourlyPeriods, now, todayEnd });
   renderForecast({ futureDaytime, hourlyPeriods });
   renderStatus(fromCache);
+  document.body.classList.remove('is-switching'); // new content painted — undim
 }
 
 // Trim a long NWS station name to its first comma-segment, capped, so the
@@ -797,6 +798,7 @@ function renderError() {
   $todayList.innerHTML = '';
   $forecastList.innerHTML = '';
   $status.hidden = true;
+  document.body.classList.remove('is-switching');
   // Nothing on screen, so an empty set is the correct prime (not a backlog
   // dump) — enable opt-in rather than leave the toggle dead for the session.
   lastAlerts = [];
@@ -925,6 +927,13 @@ function clearLocationCache() {
 }
 
 function showLocationLoading(message) {
+  // If a card is already on screen, dim it in place and let the next render swap
+  // the content in — avoids the teardown "flash" when switching or refreshing.
+  // Only blank to a loading message on first load, when there's nothing to keep.
+  if ($current.querySelector('.loc-chip')) {
+    document.body.classList.add('is-switching');
+    return;
+  }
   $alerts.hidden = true;
   $alerts.innerHTML = '';
   $current.innerHTML = `<p class="loading">${escapeHtml(message)}</p>`;

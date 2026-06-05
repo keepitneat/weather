@@ -42,6 +42,13 @@
   padding: 0;
 }
 
+/* While switching locations, dim the weather content in place so the new data
+   swaps in smoothly instead of the card tearing down to a loading flash. */
+#current, #forecast, #alerts { transition: opacity 0.18s ease; }
+body.is-switching #current,
+body.is-switching #forecast,
+body.is-switching #alerts { opacity: 0.45; }
+
 html {
   /* System font stack — no Google Fonts, no third-party tracking */
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
