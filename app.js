@@ -1051,6 +1051,15 @@ function setDisplayed(location, favoriteId) {
     clearCurrentFavoriteId(favStore);
   }
   renderLocationMenu();
+  updateChipIcon();
+}
+
+// Flip the chip's leading icon between pin (Current location) and star (a saved
+// place) when the displayed entry changes without a full re-render — e.g. right
+// after saving the current view as a favorite.
+function updateChipIcon() {
+  const svg = chipEl()?.querySelector('svg');
+  if (svg) svg.outerHTML = displayedFavoriteId === null ? PIN_SVG : STAR_SVG;
 }
 
 // A favorite is saveable only when we have its coords (a search/geolocation
