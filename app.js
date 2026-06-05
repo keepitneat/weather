@@ -1070,10 +1070,12 @@ function locationMenuItems() {
     </button>`;
   const favs = getFavorites(favStore).map((f) => {
     const active = f.id === displayedFavoriteId;
-    return `<button class="loc-item${active ? ' loc-item--active' : ''}" type="button" role="menuitem" data-favorite-id="${escapeHtml(f.id)}">
-        ${STAR_SVG}<span>${escapeHtml(f.label)}</span>
-        <span class="remove" role="button" tabindex="0" data-remove-id="${escapeHtml(f.id)}" aria-label="Remove ${escapeHtml(f.label)}">×</span>
-      </button>`;
+    return `<div class="loc-item-row" role="none">
+        <button class="loc-item${active ? ' loc-item--active' : ''}" type="button" role="menuitem" data-favorite-id="${escapeHtml(f.id)}">
+          ${STAR_SVG}<span>${escapeHtml(f.label)}</span>
+        </button>
+        <button class="loc-item-remove" type="button" data-remove-id="${escapeHtml(f.id)}" aria-label="Remove ${escapeHtml(f.label)}">×</button>
+      </div>`;
   }).join('');
   const save = canSaveDisplayed()
     ? `<button class="loc-item" type="button" role="menuitem" data-save="true">＋ Save this location</button>`
@@ -1183,19 +1185,19 @@ $current.addEventListener('click', (event) => {
   // menu items (only fire when the click is inside the menu)
   if (!event.target.closest('#location-menu')) return;
   const remove = event.target.closest('[data-remove-id]');
-  if (remove) { event.stopPropagation(); removeDisplayedFavorite(remove.dataset.removeId); renderLocationMenu(); return; }
+  if (remove) { event.stopPropagation(); removeDisplayedFavorite(remove.dataset.removeId); return; }
   if (event.target.closest('[data-search]')) { openMenuSearch(); return; }
   if (event.target.closest('#loc-menu-go')) { runMenuSearch(); return; }
   if (event.target.closest('[data-save]')) { saveDisplayedAsFavorite(); closeMenu(); return; }
   if (event.target.closest('[data-home]')) { if (displayedFavoriteId !== null) switchToCurrentLocation(); closeMenu(); return; }
   const fav = event.target.closest('[data-favorite-id]');
-  if (fav && fav.dataset.favoriteId !== displayedFavoriteId) { switchToFavorite(fav.dataset.favoriteId); closeMenu(); }
+  if (fav) { if (fav.dataset.favoriteId !== displayedFavoriteId) switchToFavorite(fav.dataset.favoriteId); closeMenu(); }
 });
 
 $current.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && menuOpen()) { event.preventDefault(); menuSearchOpen ? openMenu() : closeMenu({ restoreFocus: true }); return; }
   if (!event.target.closest('#location-menu')) return;
   if (event.key === 'Enter' && event.target.id === 'loc-menu-input') { event.preventDefault(); runMenuSearch(); }
-  else if (event.key === 'Escape') { event.preventDefault(); menuSearchOpen ? openMenu() : closeMenu({ restoreFocus: true }); }
 });
 
 document.addEventListener('click', (event) => {
