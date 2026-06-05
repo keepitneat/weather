@@ -1190,10 +1190,13 @@ $current.addEventListener('click', (event) => {
   if (event.target.closest('.refresh-location')) { refreshDisplayed(); return; }
   if (event.target.closest('.loc-chip')) { menuOpen() ? closeMenu() : openMenu(); return; }
 
-  // menu items (only fire when the click is inside the menu)
+  // menu items (only fire when the click is inside the menu). Stop here so the
+  // click never reaches the document outside-click handler — re-rendering the
+  // menu detaches event.target, which that handler would misread as "outside".
   if (!event.target.closest('#location-menu')) return;
+  event.stopPropagation();
   const remove = event.target.closest('[data-remove-id]');
-  if (remove) { event.stopPropagation(); removeDisplayedFavorite(remove.dataset.removeId); return; }
+  if (remove) { removeDisplayedFavorite(remove.dataset.removeId); return; }
   if (event.target.closest('[data-search]')) { openMenuSearch(); return; }
   if (event.target.closest('#loc-menu-go')) { runMenuSearch(); return; }
   if (event.target.closest('[data-save]')) { saveDisplayedAsFavorite(); closeMenu(); return; }
