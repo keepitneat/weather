@@ -3,9 +3,10 @@
  * No dependencies, no tracking, no nonsense.
  * ──────────────────────────────────────────────────────────────── */
 
-import { iconFor, alertIconFor, THEME_ICONS } from './icons.js';
+import { iconFor, alertIconFor, THEME_ICONS, UI_ICONS } from './icons.js';
+import { chipMarkup, menuMarkup, searchMarkup } from './location-menu.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
-import { titleCase } from './format.js';
+import { titleCase, shortStationName } from './format.js';
 import { normalizeTheme, themeAttr } from './theme.js';
 import {
   isIosSafari,
@@ -24,6 +25,18 @@ import {
   resetSeenIds,
 } from './notifications.js';
 import { geocode, looksLikeZip } from './geocode.js';
+import {
+  getFavorites,
+  addFavorite,
+  removeFavorite,
+  findFavorite,
+  findFavoriteByForecastUrl,
+  isFavorited,
+  getCurrentFavoriteId,
+  setCurrentFavoriteId,
+  clearCurrentFavoriteId,
+  favoriteToLocation,
+} from './favorites.js';
 
 const NWS_ALERTS = (lat, lon) =>
   `https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`;
@@ -55,6 +68,10 @@ const STORAGE_KEYS = {
   alerts: 'alerts-cache',
   fetchedAt: 'forecast-fetched-at',
 };
+
+// The favorites module is pure over an injected store; localStorage is the
+// real one. Bound here so every call site shares one store.
+const favStore = localStorage;
 
 // Tighter than 2hr throws away real readings for forecasts that are often less accurate at the current hour.
 const STALE_OBSERVATION_MS = 2 * 60 * 60 * 1000;
@@ -405,7 +422,9 @@ async function resolveFromCoords(latitude, longitude, nameOverride = null) {
     console.warn('Station resolution failed; observations will fall back to hourly:', stationErr);
   }
 
-  return { forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName };
+  // lat/lon ride along so the caller can persist them on a favorite (favorites
+  // re-derive their alertsUrl from coords rather than storing it).
+  return { lat: latitude, lon: longitude, forecastUrl, hourlyUrl, observationUrl, alertsUrl, locationName, stationName };
 }
 
 // Write a resolved location's pointers to storage. Separated from
@@ -534,21 +553,27 @@ async function fetchForecast(
   }
 }
 
-function render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache, primeNotifications = false }) {
-  const safeAlerts = alerts || [];
-  renderAlerts(safeAlerts, fromCache);
-  lastAlerts = safeAlerts;
-  // On a deliberate location switch the seen-set was just reset, so prime it
-  // against this location's active alerts instead of notifying (no backlog dump
-  // for a place the user just chose). Cached renders were already notified on a
-  // prior live fetch. Otherwise diff-and-notify on fresh data.
+// Prime or diff-and-notify the alert seen-set for this render, and record the
+// alerts so enabling the toggle can prime against what's on screen. On a
+// deliberate location switch the seen-set was just reset, so prime against this
+// location's active alerts instead of notifying (no backlog dump for a place the
+// user just chose). Cached renders were already notified on a prior live fetch.
+// Otherwise diff-and-notify on fresh data.
+function reconcileAlertNotifications({ alerts, fromCache, primeNotifications }) {
+  lastAlerts = alerts;
   if (primeNotifications) {
-    primeSeenIds(safeAlerts);
+    primeSeenIds(alerts);
   } else if (!fromCache) {
-    notifyNewAlerts(safeAlerts);
+    notifyNewAlerts(alerts);
   }
   // lastAlerts is now populated — safe to let the user opt in (see above).
   enableNotifyToggle();
+}
+
+function render({ periods, hourlyPeriods, observation, alerts, locationName, stationName, fromCache, primeNotifications = false }) {
+  const safeAlerts = alerts || [];
+  renderAlerts(safeAlerts, fromCache);
+  reconcileAlertNotifications({ alerts: safeAlerts, fromCache, primeNotifications });
 
   const now = Date.now();
   const { currentPeriod, todayPeriods, futureDaytime, todayEnd } =
@@ -558,27 +583,39 @@ function render({ periods, hourlyPeriods, observation, alerts, locationName, sta
   renderToday({ currentPeriod, todayPeriods, hourlyPeriods, now, todayEnd });
   renderForecast({ futureDaytime, hourlyPeriods });
   renderStatus(fromCache);
+  document.body.classList.remove('is-switching'); // new content painted — undim
 }
+
+// ─── Location chip icons + displayed-location state ────────────────
+// The location currently on screen, kept so "Add to favorites" has the resolved
+// data (incl. lat/lon) to persist without a re-resolve. null until first render.
+let displayedLocation = null;
+// id of the favorite being shown, or null for Current location (the home entry).
+let displayedFavoriteId = null;
 
 function renderCurrent({ observation, hourlyPeriods, locationName, stationName }) {
   const conditions = currentConditions(observation, hourlyPeriods);
   // City as headline; station name (often ALL-CAPS airport jargon) goes in the observed-at line as provenance.
   let observedLine;
   if (conditions.fromObservation) {
-    const stationLabel = stationName ? ` at ${titleCase(stationName)}` : '';
+    const stationLabel = stationName ? ` at ${titleCase(shortStationName(stationName))}` : '';
     observedLine = `Observed ${formatRelative(conditions.observedAt)}${stationLabel}`;
   } else {
     observedLine = 'Latest forecast (no station data)';
   }
   $current.innerHTML = `
     <div class="location">
-      <span>${escapeHtml(locationName)}</span>
-      <button class="change-location" type="button" aria-expanded="false" aria-controls="location-search">change</button>
-      <button class="update-location" type="button">update</button>
+      ${chipMarkup({ isCurrent: displayedFavoriteId === null, name: locationName })}
+      <div class="loc-actions">
+        <button class="refresh-location" type="button" aria-label="Refresh" title="Refresh this location">↻</button>
+      </div>
+      <div id="location-menu" aria-label="Location" hidden></div>
     </div>
-    <div class="temp">${conditions.tempF}°F</div>
-    <div class="condition">${iconFor(conditions.shortForecast, conditions.isDaytime)} ${escapeHtml(conditions.shortForecast)}</div>
-    <div class="observed-at">${observedLine}</div>
+    <div aria-live="polite">
+      <div class="temp">${conditions.tempF}°F</div>
+      <div class="condition">${iconFor(conditions.shortForecast, conditions.isDaytime)} ${escapeHtml(conditions.shortForecast)}</div>
+      <div class="observed-at">${observedLine}</div>
+    </div>
   `;
 }
 
@@ -767,6 +804,7 @@ function renderError() {
   $todayList.innerHTML = '';
   $forecastList.innerHTML = '';
   $status.hidden = true;
+  document.body.classList.remove('is-switching');
   // Nothing on screen, so an empty set is the correct prime (not a backlog
   // dump) — enable opt-in rather than leave the toggle dead for the session.
   lastAlerts = [];
@@ -895,6 +933,13 @@ function clearLocationCache() {
 }
 
 function showLocationLoading(message) {
+  // If a card is already on screen, dim it in place and let the next render swap
+  // the content in — avoids the teardown "flash" when switching or refreshing.
+  // Only blank to a loading message on first load, when there's nothing to keep.
+  if ($current.querySelector('.loc-chip')) {
+    document.body.classList.add('is-switching');
+    return;
+  }
   $alerts.hidden = true;
   $alerts.innerHTML = '';
   $current.innerHTML = `<p class="loading">${escapeHtml(message)}</p>`;
@@ -921,7 +966,9 @@ async function updateLocation() {
     const location = await resolveFromCoords(latitude, longitude);
 
     clearLocationCache();
+    clearCurrentFavoriteId(favStore);
     persistLocation(location);
+    setDisplayed(location, null);
     await fetchForecast(location, { primeNotifications: true });
   } catch (err) {
     console.warn('Location update failed; keeping previous location:', err);
@@ -930,8 +977,20 @@ async function updateLocation() {
     } else {
       const location = await resolveLocation();
       persistLocation(location);
+      setDisplayed(location, null);
       await fetchForecast(location);
     }
+  }
+}
+
+// Refresh whatever's on screen. For a saved favorite, re-fetch its data (reuses
+// the cached URLs — no geocode). For Current location, re-run geolocation, since
+// "refresh" of a GPS-derived view means re-checking where you are.
+function refreshDisplayed() {
+  if (displayedFavoriteId === null) {
+    updateLocation();
+  } else if (displayedLocation) {
+    fetchForecast(displayedLocation);
   }
 }
 
@@ -952,110 +1011,221 @@ function currentLocationFromCache() {
   };
 }
 
-const $search = document.getElementById('location-search');
-const $searchInput = document.getElementById('location-search-input');
-const $searchError = document.getElementById('location-search-error');
-
-// The "change" toggle is re-rendered by renderCurrent, so query it live each
-// time rather than caching a stale node. Mirrors the settings-menu's
-// aria-expanded pattern so screen readers learn the form appeared/closed.
-function changeLocationButton() {
-  return $current.querySelector('.change-location');
-}
-
-function openSearch() {
-  $search.hidden = false;
-  $searchError.hidden = true;
-  $searchInput.value = '';
-  changeLocationButton()?.setAttribute('aria-expanded', 'true');
-  $searchInput.focus();
-}
-
-function closeSearch({ restoreFocus = false } = {}) {
-  $search.hidden = true;
-  $searchError.hidden = true;
-  const toggle = changeLocationButton();
-  toggle?.setAttribute('aria-expanded', 'false');
-  if (restoreFocus) toggle?.focus();
-}
-
-function showSearchError(message) {
-  $searchError.textContent = message;
-  $searchError.hidden = false;
-}
-
-// Geocode the query, take the top match, resolve its coords to NWS endpoints,
-// and render. Resolve-then-commit: the geocode AND the NWS resolve run while the
-// form is still open, so a miss or a network failure surfaces in-form (the
-// screen keeps the old location) instead of wiping it. Only once we hold a
-// complete new location do we close the form, clear the old cache, and persist.
-async function searchLocation(query) {
-  const trimmed = query.trim();
-  if (!trimmed) {
-    showSearchError('Enter a city or ZIP code.');
-    return;
-  }
-
-  $searchInput.disabled = true;
-  $searchError.hidden = true;
+// Geocode the query, take the top match, resolve to NWS endpoints, render.
+// Resolve-then-commit: geocode + NWS resolve run before we touch the cache, so a
+// miss or failure leaves the current location intact and is reported via onError.
+// Returns true once a switch is committed, false otherwise (the menu caller closes
+// the menu only on true).
+async function searchLocation(query, { onError = () => {} } = {}) {
+  const trimmed = (query || '').trim();
+  if (!trimmed) { onError('Enter a city or ZIP code.'); return false; }
   try {
     const matches = await geocode(trimmed);
     if (matches.length === 0) {
-      const hint = looksLikeZip(trimmed)
+      onError(looksLikeZip(trimmed)
         ? 'No US location found for that ZIP code.'
-        : 'No match — try "City, ST" (e.g. "Madison, WI") or a ZIP code.';
-      showSearchError(hint);
-      return;
+        : 'No match — try "City, ST" (e.g. "Madison, WI") or a ZIP code.');
+      return false;
     }
-
     const { name, lat, lon } = matches[0];
     const location = await resolveFromCoords(lat, lon, name);
 
-    // Resolve succeeded — now it's safe to commit the switch.
-    closeSearch();
     showLocationLoading(`Loading weather for ${name}…`);
     clearLocationCache();
-    persistLocation(location);
-    await fetchForecast(location, { primeNotifications: true });
-    // renderCurrent rebuilt the toggle, so focus was dropped to <body> — land
-    // it back on the (new) change button so keyboard users keep their place.
-    changeLocationButton()?.focus();
+    // If the searched place is already saved, show the FAVORITE's stored data
+    // (its custom label/station) rather than the bare geocode name.
+    const existing = findFavoriteByForecastUrl(favStore, location.forecastUrl);
+    const displayLocation = existing ? favoriteToLocation(existing) : location;
+    persistLocation(displayLocation);
+    setDisplayed(displayLocation, existing ? existing.id : null);
+    await fetchForecast(displayLocation, { primeNotifications: true });
+    return true;
   } catch (err) {
     console.warn('Location search failed:', err);
-    showSearchError("Couldn't search right now. Check your connection and try again.");
-  } finally {
-    $searchInput.disabled = false;
+    onError("Couldn't search right now. Check your connection and try again.");
+    return false;
   }
 }
 
+// ─── Favorites (saved locations + location menu) ───────────────────
+
+// Snapshot what's displayed after every successful fetch so the switcher can
+// mark the active entry and "Add to favorites" can save the exact resolved data.
+function setDisplayed(location, favoriteId) {
+  displayedLocation = location;
+  displayedFavoriteId = favoriteId ?? null;
+  if (favoriteId) {
+    setCurrentFavoriteId(favStore, favoriteId);
+  } else {
+    clearCurrentFavoriteId(favStore);
+  }
+  renderLocationMenu();
+}
+
+// Flip the chip's leading icon between pin (Current location) and star (a saved
+// place) when the displayed entry changes without a full re-render — e.g. right
+// after saving the current view as a favorite.
+function updateChipIcon() {
+  const svg = chipEl()?.querySelector('svg');
+  // Assigning outerHTML detaches the old node and inserts fresh markup; the
+  // local `svg` ref goes stale here and is intentionally not reused afterward.
+  if (svg) svg.outerHTML = displayedFavoriteId === null ? UI_ICONS.pin : UI_ICONS.star;
+}
+
+// A favorite is saveable only when we have its coords (a search/geolocation
+// resolve), and only when the shown location isn't already one. Current
+// location is never offered as a save (it's the always-present home entry).
+function canSaveDisplayed() {
+  if (!displayedLocation || displayedFavoriteId) return false;
+  if (!Number.isFinite(displayedLocation.lat) || !Number.isFinite(displayedLocation.lon)) return false;
+  return !isFavorited(favStore, displayedLocation.forecastUrl);
+}
+
+// The menu node is rebuilt inside .location on every renderCurrent, so query it
+// live (never cache) and delegate all listeners on the stable #current/document.
+const menuEl = () => document.getElementById('location-menu');
+const chipEl = () => $current.querySelector('.loc-chip');
+let menuSearchOpen = false; // menu showing its inline search sub-state
+
+function renderLocationMenu() {
+  const el = menuEl();
+  if (el) {
+    el.innerHTML = menuSearchOpen
+      ? searchMarkup()
+      : menuMarkup({ favorites: getFavorites(favStore), activeFavoriteId: displayedFavoriteId, canSave: canSaveDisplayed() });
+  }
+}
+
+function openMenu() {
+  menuSearchOpen = false;
+  renderLocationMenu();
+  const el = menuEl();
+  if (!el) return;
+  el.hidden = false;
+  chipEl()?.setAttribute('aria-expanded', 'true');
+  el.querySelector('.loc-item, input')?.focus();
+}
+function closeMenu({ restoreFocus = false } = {}) {
+  const el = menuEl();
+  if (el) el.hidden = true;
+  menuSearchOpen = false;
+  const chip = chipEl();
+  chip?.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) chip?.focus();
+}
+function menuOpen() { const el = menuEl(); return el && !el.hidden; }
+function openMenuSearch() {
+  menuSearchOpen = true;
+  renderLocationMenu();
+  document.getElementById('loc-menu-input')?.focus();
+}
+async function runMenuSearch() {
+  const input = document.getElementById('loc-menu-input');
+  if (!input) return;
+  const ok = await searchLocation(input.value, {
+    onError: (msg) => { const e = document.getElementById('loc-menu-error'); if (e) { e.textContent = msg; e.hidden = false; } },
+  });
+  if (ok) closeMenu();
+}
+
+// Switch to a saved favorite. Reuses the NEAT-58 resolve-then-commit discipline:
+// the favorite already holds resolved URLs, so we snapshot the current view,
+// clear the stale cache + alert seen-set, persist the favorite's pointers, and
+// fetch. A fetch failure inside fetchForecast falls back to that favorite's own
+// cache, so there's no half-switched state to unwind here.
+async function switchToFavorite(id) {
+  const fav = findFavorite(favStore, id);
+  if (!fav) return;
+  const location = favoriteToLocation(fav);
+  showLocationLoading(`Loading weather for ${fav.label}…`);
+  clearLocationCache();
+  persistLocation(location);
+  setDisplayed(location, fav.id);
+  await fetchForecast(location, { primeNotifications: true });
+}
+
+// Switch back to the geolocation-resolved home. clearLocationCache wipes the
+// cached pointers, so resolveLocation re-runs geolocation (or falls back) rather
+// than reading the just-cleared cache.
+async function switchToCurrentLocation() {
+  showLocationLoading('Updating location…');
+  clearLocationCache();
+  clearCurrentFavoriteId(favStore);
+  const location = await resolveLocation();
+  persistLocation(location);
+  setDisplayed(location, null);
+  await fetchForecast(location, { primeNotifications: true });
+}
+
+function saveDisplayedAsFavorite() {
+  if (!canSaveDisplayed()) return;
+  const fav = addFavorite(favStore, displayedLocation);
+  // Now that it's saved, the displayed location IS that favorite — flip the
+  // pointer so the pill shows active and the add action disappears.
+  setDisplayed(displayedLocation, fav.id);
+  // The only path that flips the icon WITHOUT an imminent render(): switch
+  // paths repaint the chip (icon + name together) via render(), but saving in
+  // place doesn't re-fetch, so flip the icon explicitly here.
+  updateChipIcon();
+}
+
+function removeDisplayedFavorite(id) {
+  const wasShowing = id === displayedFavoriteId;
+  removeFavorite(favStore, id);
+  if (wasShowing) {
+    switchToCurrentLocation();
+  } else {
+    renderLocationMenu();
+  }
+}
+
+// All click handling delegated on the stable #current section.
 $current.addEventListener('click', (event) => {
-  if (event.target.closest('.update-location')) {
-    updateLocation();
-  } else if (event.target.closest('.change-location')) {
-    openSearch();
-  }
+  if (event.target.closest('.refresh-location')) { refreshDisplayed(); return; }
+  if (event.target.closest('.loc-chip')) { menuOpen() ? closeMenu() : openMenu(); return; }
+
+  // menu items (only fire when the click is inside the menu). Stop here so the
+  // click never reaches the document outside-click handler — re-rendering the
+  // menu detaches event.target, which that handler would misread as "outside".
+  if (!event.target.closest('#location-menu')) return;
+  event.stopPropagation();
+  const remove = event.target.closest('[data-remove-id]');
+  if (remove) { removeDisplayedFavorite(remove.dataset.removeId); return; }
+  if (event.target.closest('[data-search]')) { openMenuSearch(); return; }
+  if (event.target.closest('#loc-menu-go')) { runMenuSearch(); return; }
+  if (event.target.closest('[data-save]')) { saveDisplayedAsFavorite(); closeMenu(); return; }
+  if (event.target.closest('[data-home]')) { if (displayedFavoriteId !== null) switchToCurrentLocation(); closeMenu(); return; }
+  const fav = event.target.closest('[data-favorite-id]');
+  if (fav) { if (fav.dataset.favoriteId !== displayedFavoriteId) switchToFavorite(fav.dataset.favoriteId); closeMenu(); }
 });
 
-$search.addEventListener('submit', (event) => {
-  event.preventDefault();
-  searchLocation($searchInput.value);
+$current.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && menuOpen()) { event.preventDefault(); menuSearchOpen ? openMenu() : closeMenu({ restoreFocus: true }); return; }
+  if (!event.target.closest('#location-menu')) return;
+  if (event.key === 'Enter' && event.target.id === 'loc-menu-input') { event.preventDefault(); runMenuSearch(); }
 });
 
-$search.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    closeSearch({ restoreFocus: true });
-  }
-});
-
-document.getElementById('location-search-cancel').addEventListener('click', () => {
-  closeSearch({ restoreFocus: true });
+document.addEventListener('click', (event) => {
+  if (menuOpen() && !event.target.closest('.location')) closeMenu();
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────
 
+// On boot, restore the favorite the user last viewed (if it still exists);
+// otherwise show Current location. A favorite switch reads cached URLs only —
+// no geocode/points round-trip.
 (async () => {
+  const savedId = getCurrentFavoriteId(favStore);
+  const fav = savedId ? findFavorite(favStore, savedId) : null;
+  if (fav) {
+    const location = favoriteToLocation(fav);
+    persistLocation(location);
+    setDisplayed(location, fav.id);
+    fetchForecast(location);
+    return;
+  }
   const location = await resolveLocation();
+  setDisplayed(location, null);
   fetchForecast(location);
 })();
 

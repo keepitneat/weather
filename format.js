@@ -12,3 +12,11 @@ export function titleCase(str) {
   if (str.length <= 4 && /^[A-Z0-9]+$/.test(str)) return str;
   return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+// Trim a long NWS station name to its first comma-segment, capped at 28 chars
+// (with an ellipsis), so the observed line stays one tidy line.
+export function shortStationName(name) {
+  if (!name) return '';
+  const first = String(name).split(',')[0].trim();
+  return first.length > 28 ? `${first.slice(0, 27).trimEnd()}…` : first;
+}

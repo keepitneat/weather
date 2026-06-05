@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { titleCase } from './format.js';
+import { titleCase, shortStationName } from './format.js';
 
 test('titleCase: title-cases human-readable names', () => {
   assert.equal(titleCase('MADISON DANE CO REGIONAL AIRPORT'), 'Madison Dane Co Regional Airport');
@@ -30,4 +30,21 @@ test('titleCase: handles empty / nullish input safely', () => {
   assert.equal(titleCase(''), '');
   assert.equal(titleCase(null), '');
   assert.equal(titleCase(undefined), '');
+});
+
+test('shortStationName: empty / nullish → empty string', () => {
+  assert.equal(shortStationName(''), '');
+  assert.equal(shortStationName(null), '');
+  assert.equal(shortStationName(undefined), '');
+});
+
+test('shortStationName: takes the first comma-segment, trimmed', () => {
+  assert.equal(shortStationName('Truax Field, Dane County, WI'), 'Truax Field');
+  assert.equal(shortStationName('  Central Park , NY '), 'Central Park');
+});
+
+test('shortStationName: caps a long single segment at 28 chars with an ellipsis', () => {
+  assert.equal(shortStationName('Madison Dane County Regional-Truax Field'), 'Madison Dane County Regiona…');
+  assert.equal(shortStationName('b'.repeat(28)), 'b'.repeat(28)); // exactly 28 kept whole
+  assert.equal(shortStationName('b'.repeat(29)), `${'b'.repeat(27)}…`);
 });

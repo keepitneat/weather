@@ -42,6 +42,17 @@
   padding: 0;
 }
 
+/* While switching locations, dim the weather content in place so the new data
+   swaps in smoothly instead of the card tearing down to a loading flash. */
+#current, #forecast, #alerts { transition: opacity 0.18s ease; }
+body.is-switching #current,
+body.is-switching #forecast,
+body.is-switching #alerts { opacity: 0.45; }
+
+@media (prefers-reduced-motion: reduce) {
+  #current, #forecast, #alerts { transition: none; }
+}
+
 html {
   /* System font stack — no Google Fonts, no third-party tracking */
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
@@ -374,121 +385,58 @@ h1 {
   margin-bottom: 2rem;
 }
 
-#current .location {
-  font-size: 0.875rem;
-  color: var(--text-muted);
-  margin-bottom: 0.5rem;
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-}
-
-#current .update-location,
-#current .change-location {
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--accent);
-  font-size: 0.8125rem;
-  font-family: inherit;
-  cursor: pointer;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-#current .update-location:hover,
-#current .change-location:hover {
-  text-decoration: none;
-}
-
-#current .update-location:focus-visible,
-#current .change-location:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-  border-radius: 2px;
-}
-
-/* ─── Location search ──────────────────────────────────────── */
-
-#location-search {
-  border: 1px solid var(--border);
-  border-radius: 0.75rem;
-  padding: 1rem 1.25rem;
-  margin-bottom: 2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-#location-search[hidden] {
-  display: none;
-}
-
-#location-search label {
-  font-size: 0.75rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-}
-
-.location-search-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-#location-search-input {
-  flex: 1 1 12rem;
-  min-width: 0;
-  padding: 0.5rem 0.625rem;
-  font-size: 1rem;
-  font-family: inherit;
+/* Location chip — the tappable name that opens the menu */
+.location { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.loc-chip {
+  display: inline-flex; align-items: center; gap: 0.375rem;
+  font: 600 1.0625rem -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: var(--text);
-  background: var(--button-bg);
+  background: rgba(52, 211, 153, 0.06);
   border: 1px solid var(--border);
-  border-radius: 0.375rem;
+  border-radius: 0.625rem; padding: 0.3125rem 0.625rem; cursor: pointer;
 }
+.loc-chip:hover { background: rgba(52, 211, 153, 0.10); }
+.loc-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.loc-chip svg { width: 0.9375rem; height: 0.9375rem; color: var(--accent); flex: 0 0 auto; }
+.loc-chip .caret { font-size: 0.75rem; color: var(--text-muted); }
 
-#location-search-input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.loc-actions { display: flex; align-items: center; gap: 0.5rem; flex: 0 0 auto; }
+.refresh-location {
+  width: 1.875rem; height: 1.875rem; display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: 1px solid var(--border); border-radius: 0.5rem; color: var(--text); cursor: pointer; font-size: 0.9375rem;
 }
+.refresh-location:hover { background: var(--button-hover); }
+.refresh-location:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-#location-search button {
-  padding: 0.5rem 0.875rem;
-  font-size: 0.875rem;
-  font-family: inherit;
-  border-radius: 0.375rem;
-  cursor: pointer;
+/* Location menu */
+#location-menu {
+  position: absolute; z-index: 10; top: calc(100% + 0.5rem); left: 0; min-width: 15rem;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 0.75rem;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18); padding: 0.375rem;
 }
+#location-menu[hidden] { display: none; }
+.loc-item {
+  display: flex; align-items: center; gap: 0.5rem; width: 100%; text-align: left;
+  background: none; border: none; border-radius: 0.5rem; padding: 0.5rem 0.625rem;
+  color: var(--text); cursor: pointer; font: 400 0.875rem inherit;
+}
+.loc-item:hover { background: var(--button-hover); }
+.loc-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.loc-item svg { width: 0.875rem; height: 0.875rem; color: var(--accent); flex: 0 0 auto; }
+.loc-item--active { color: var(--accent); }
+.loc-item .check { margin-left: auto; color: var(--accent); }
+.loc-item-row { display: flex; align-items: center; }
+.loc-item-row .loc-item { flex: 1; }
+.loc-item-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; padding: 0 0.5rem; border-radius: 0.5rem; align-self: stretch; }
+.loc-item-remove:hover { background: var(--button-hover); }
+.loc-item-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.loc-menu-sep { height: 1px; background: var(--border); margin: 0.375rem 0.25rem; }
+.loc-menu-search { display: flex; gap: 0.375rem; padding: 0.375rem; }
+.loc-menu-search input { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--accent); border-radius: 0.5rem; padding: 0.4375rem 0.5625rem; color: var(--text); font: 400 0.875rem inherit; }
+.loc-menu-search button { background: var(--accent); color: #06281d; border: none; border-radius: 0.5rem; padding: 0.4375rem 0.75rem; font: 600 0.8125rem inherit; cursor: pointer; }
+.loc-menu-hint { font-size: 0.75rem; color: var(--text-muted); padding: 0 0.5rem 0.375rem; }
+.loc-menu-error { font-size: 0.75rem; color: #dc2626; padding: 0 0.5rem 0.375rem; }
 
-#location-search button[type="submit"] {
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: #fff;
-}
-
-#location-search-cancel {
-  border: 1px solid var(--border);
-  background: var(--button-bg);
-  color: var(--text);
-}
-
-#location-search button:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-.location-search-error {
-  font-size: 0.8125rem;
-  color: #dc2626;
-  margin: 0;
-}
-
-.location-search-error[hidden] {
-  display: none;
-}
 
 #current .temp {
   font-size: 3.5rem;

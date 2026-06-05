@@ -15,6 +15,7 @@ import {
   looksLikeZip,
   buildGeocodeUrl,
   parseNominatimResults,
+  shortLocationName,
   geocode,
 } from './geocode.js';
 
@@ -35,6 +36,13 @@ const REAL_CITY_RESPONSE = [
     addresstype: 'city',
     name: 'Madison',
     display_name: 'Madison, Dane County, Wisconsin, United States',
+    address: {
+      city: 'Madison',
+      county: 'Dane County',
+      state: 'Wisconsin',
+      postcode: '53703',
+      country_code: 'us',
+    },
   },
 ];
 
@@ -48,6 +56,13 @@ const REAL_ZIP_RESPONSE = [
     addresstype: 'postcode',
     name: '53703',
     display_name: '53703, Madison, Dane County, Wisconsin, United States',
+    address: {
+      postcode: '53703',
+      city: 'Madison',
+      county: 'Dane County',
+      state: 'Wisconsin',
+      country_code: 'us',
+    },
   },
 ];
 
@@ -87,7 +102,7 @@ test('parseNominatimResults: extracts numeric lat/lon + name from a real city re
   const results = parseNominatimResults(REAL_CITY_RESPONSE);
   assert.deepEqual(results, [
     {
-      name: 'Madison, Dane County, Wisconsin, United States',
+      name: 'Madison, WI',
       lat: 43.07469,
       lon: -89.3841663,
     },
@@ -98,7 +113,7 @@ test('parseNominatimResults: extracts numeric lat/lon + name from a real ZIP res
   const results = parseNominatimResults(REAL_ZIP_RESPONSE);
   assert.deepEqual(results, [
     {
-      name: '53703, Madison, Dane County, Wisconsin, United States',
+      name: 'Madison, WI',
       lat: 43.0782413,
       lon: -89.3760345,
     },
@@ -149,7 +164,7 @@ test('geocode: returns parsed matches from a real Nominatim response', async () 
   const results = await geocode('Madison, WI', { fetchImpl });
   assert.deepEqual(results, [
     {
-      name: 'Madison, Dane County, Wisconsin, United States',
+      name: 'Madison, WI',
       lat: 43.07469,
       lon: -89.3841663,
     },
@@ -173,4 +188,49 @@ test('geocode: trims the query before sending it', async () => {
   await geocode('  Madison, WI  ', { fetchImpl });
   const sent = new URL(fetchImpl.calls[0]);
   assert.equal(sent.searchParams.get('q'), 'Madison, WI');
+});
+
+// ─── shortLocationName ───────────────────────────────────────────
+
+test('shortLocationName: city + state → "City, ST"', () => {
+  assert.equal(shortLocationName({ address: { city: 'Madison', state: 'Wisconsin' } }), 'Madison, WI');
+});
+
+test('shortLocationName: falls back through town/village/hamlet/county for the city part', () => {
+  assert.equal(shortLocationName({ address: { town: 'Mount Horeb', state: 'Wisconsin' } }), 'Mount Horeb, WI');
+  assert.equal(shortLocationName({ address: { village: 'Cross Plains', state: 'Wisconsin' } }), 'Cross Plains, WI');
+  assert.equal(shortLocationName({ address: { hamlet: 'Pickett', state: 'Wisconsin' } }), 'Pickett, WI');
+  assert.equal(shortLocationName({ address: { county: 'Dane County', state: 'Wisconsin' } }), 'Dane County, WI');
+});
+
+test('shortLocationName: ZIP result (postcode + city) still yields City, ST', () => {
+  assert.equal(
+    shortLocationName({ address: { postcode: '53703', city: 'Madison', state: 'Wisconsin' } }),
+    'Madison, WI'
+  );
+});
+
+test('shortLocationName: unknown state name passes through as-is', () => {
+  assert.equal(shortLocationName({ address: { city: 'Springfield', state: 'Atlantis' } }), 'Springfield, Atlantis');
+});
+
+test('shortLocationName: no address → first two display_name segments', () => {
+  assert.equal(
+    shortLocationName({ display_name: 'Madison, Dane County, Wisconsin, United States' }),
+    'Madison, Dane County'
+  );
+});
+
+test('shortLocationName: nothing usable → empty string', () => {
+  assert.equal(shortLocationName({}), '');
+  assert.equal(shortLocationName(null), '');
+});
+
+test('parseNominatimResults: name is the short "City, ST"', () => {
+  const data = [{
+    lat: '43.07', lon: '-89.38',
+    display_name: 'Madison, Dane County, Wisconsin, United States',
+    address: { city: 'Madison', state: 'Wisconsin' },
+  }];
+  assert.deepEqual(parseNominatimResults(data), [{ name: 'Madison, WI', lat: 43.07, lon: -89.38 }]);
 });
