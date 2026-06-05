@@ -1084,6 +1084,8 @@ function setDisplayed(location, favoriteId) {
 // after saving the current view as a favorite.
 function updateChipIcon() {
   const svg = chipEl()?.querySelector('svg');
+  // Assigning outerHTML detaches the old node and inserts fresh markup; the
+  // local `svg` ref goes stale here and is intentionally not reused afterward.
   if (svg) svg.outerHTML = displayedFavoriteId === null ? PIN_SVG : STAR_SVG;
 }
 

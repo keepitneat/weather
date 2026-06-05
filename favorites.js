@@ -61,7 +61,7 @@ function generateId() {
 // Build the stored favorite shape from a resolved location (the NEAT-58
 // resolveFromCoords output). Pure — no store, no id generation — so it's
 // trivially testable and reusable.
-export function locationToFavorite(location, id, label) {
+export function locationToFavorite(location, { id, label } = {}) {
   return {
     id,
     label: label || location.locationName,
@@ -83,7 +83,7 @@ export function addFavorite(store, location, { label } = {}) {
   const existing = favorites.find((f) => f.forecastUrl === location.forecastUrl);
   if (existing) return existing;
 
-  const favorite = locationToFavorite(location, generateId(), label);
+  const favorite = locationToFavorite(location, { id: generateId(), label });
   writeFavorites(store, [...favorites, favorite]);
   return favorite;
 }

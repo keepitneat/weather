@@ -234,7 +234,7 @@ test('favoriteToLocation: a favorite without coords yields a null alertsUrl (no 
 // ─── locationToFavorite: round-trip shape (no store, pure) ────────
 
 test('locationToFavorite: produces the stored favorite shape from a resolved location', () => {
-  const fav = locationToFavorite(MADISON, 'id-1');
+  const fav = locationToFavorite(MADISON, { id: 'id-1' });
   assert.deepEqual(fav, {
     id: 'id-1',
     label: 'Madison, WI',
