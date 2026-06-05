@@ -590,7 +590,7 @@ function renderCurrent({ observation, hourlyPeriods, locationName, stationName }
     <div class="location">
       <span>${escapeHtml(locationName)}</span>
       <button class="change-location" type="button" aria-expanded="false" aria-controls="location-search">change</button>
-      <button class="update-location" type="button">update</button>
+      <button class="refresh-location" type="button" title="Refresh this location">↻ refresh</button>
     </div>
     <div class="temp">${conditions.tempF}°F</div>
     <div class="condition">${iconFor(conditions.shortForecast, conditions.isDaytime)} ${escapeHtml(conditions.shortForecast)}</div>
@@ -954,6 +954,17 @@ async function updateLocation() {
   }
 }
 
+// Refresh whatever's on screen. For a saved favorite, re-fetch its data (reuses
+// the cached URLs — no geocode). For Current location, re-run geolocation, since
+// "refresh" of a GPS-derived view means re-checking where you are.
+function refreshDisplayed() {
+  if (displayedFavoriteId === null) {
+    updateLocation();
+  } else if (displayedLocation) {
+    fetchForecast(displayedLocation);
+  }
+}
+
 // Reconstruct the current location object from the cached pointers, or null if
 // nothing is cached. Used to restore the prior view when a location switch fails.
 function currentLocationFromCache() {
@@ -1056,8 +1067,8 @@ async function searchLocation(query) {
 }
 
 $current.addEventListener('click', (event) => {
-  if (event.target.closest('.update-location')) {
-    updateLocation();
+  if (event.target.closest('.refresh-location')) {
+    refreshDisplayed();
   } else if (event.target.closest('.change-location')) {
     openSearch();
   }
@@ -1119,7 +1130,7 @@ function homePill() {
   return `
     <button class="loc-pill${active ? ' loc-pill--active' : ''}" type="button"
             data-home="true" aria-pressed="${active}">
-      <span class="loc-pill-label">Current location</span>
+      <span class="loc-pill-pin" aria-hidden="true">📍</span><span class="loc-pill-label">Current location</span>
     </button>
   `;
 }
@@ -1148,18 +1159,17 @@ function addFavoriteButton() {
 }
 
 // Render the home entry + saved-favorite pills + the conditional add action.
-// Hidden entirely when there's nothing to switch to and nothing to save, so the
-// default single-location experience stays uncluttered.
 function renderSwitcher() {
-  const favorites = getFavorites(favStore);
-  const addButton = addFavoriteButton();
-  if (favorites.length === 0 && !addButton) {
+  // Show the switcher (with at least the Current-location pill) once a location
+  // is on screen, so favorites stay discoverable. Hidden only before first load.
+  if (!displayedLocation) {
     $switcher.hidden = true;
     $switcher.innerHTML = '';
     return;
   }
+  const favorites = getFavorites(favStore);
   $switcher.innerHTML =
-    homePill() + favorites.map(favoritePill).join('') + addButton;
+    homePill() + favorites.map(favoritePill).join('') + addFavoriteButton();
   $switcher.hidden = false;
 }
 

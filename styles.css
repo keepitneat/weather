@@ -521,6 +521,8 @@ h1 {
   white-space: nowrap;
 }
 
+.loc-pill-pin { margin-right: 0.25rem; }
+
 .loc-pill--active {
   border-color: var(--accent);
   color: var(--accent);
