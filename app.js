@@ -23,7 +23,7 @@ import {
   primeSeenIds,
   resetSeenIds,
 } from './notifications.js';
-import { geocode, looksLikeZip } from './geocode.js';
+import { geocode, looksLikeZip, shortLocationName } from './geocode.js';
 import {
   getFavorites,
   addFavorite,
@@ -588,9 +588,15 @@ function renderCurrent({ observation, hourlyPeriods, locationName, stationName }
   }
   $current.innerHTML = `
     <div class="location">
-      <span>${escapeHtml(locationName)}</span>
-      <button class="change-location" type="button" aria-expanded="false" aria-controls="location-search">change</button>
-      <button class="refresh-location" type="button" title="Refresh this location">↻ refresh</button>
+      <button class="loc-chip" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="location-menu">
+        ${displayedFavoriteId === null ? PIN_SVG : STAR_SVG}
+        <span class="loc-chip-name">${escapeHtml(locationName)}</span>
+        <span class="caret" aria-hidden="true">▾</span>
+      </button>
+      <div class="loc-actions">
+        <button class="refresh-location" type="button" aria-label="Refresh" title="Refresh this location">↻</button>
+      </div>
+      <div id="location-menu" role="menu" aria-label="Location" hidden></div>
     </div>
     <div class="temp">${conditions.tempF}°F</div>
     <div class="condition">${iconFor(conditions.shortForecast, conditions.isDaytime)} ${escapeHtml(conditions.shortForecast)}</div>
@@ -982,117 +988,43 @@ function currentLocationFromCache() {
   };
 }
 
-const $search = document.getElementById('location-search');
-const $searchInput = document.getElementById('location-search-input');
-const $searchError = document.getElementById('location-search-error');
-
-// The "change" toggle is re-rendered by renderCurrent, so query it live each
-// time rather than caching a stale node. Mirrors the settings-menu's
-// aria-expanded pattern so screen readers learn the form appeared/closed.
-function changeLocationButton() {
-  return $current.querySelector('.change-location');
-}
-
-function openSearch() {
-  $search.hidden = false;
-  $searchError.hidden = true;
-  $searchInput.value = '';
-  changeLocationButton()?.setAttribute('aria-expanded', 'true');
-  $searchInput.focus();
-}
-
-function closeSearch({ restoreFocus = false } = {}) {
-  $search.hidden = true;
-  $searchError.hidden = true;
-  const toggle = changeLocationButton();
-  toggle?.setAttribute('aria-expanded', 'false');
-  if (restoreFocus) toggle?.focus();
-}
-
-function showSearchError(message) {
-  $searchError.textContent = message;
-  $searchError.hidden = false;
-}
-
-// Geocode the query, take the top match, resolve its coords to NWS endpoints,
-// and render. Resolve-then-commit: the geocode AND the NWS resolve run while the
-// form is still open, so a miss or a network failure surfaces in-form (the
-// screen keeps the old location) instead of wiping it. Only once we hold a
-// complete new location do we close the form, clear the old cache, and persist.
-async function searchLocation(query) {
-  const trimmed = query.trim();
-  if (!trimmed) {
-    showSearchError('Enter a city or ZIP code.');
-    return;
-  }
-
-  $searchInput.disabled = true;
-  $searchError.hidden = true;
+// Geocode the query, take the top match, resolve to NWS endpoints, render.
+// Resolve-then-commit: geocode + NWS resolve run before we touch the cache, so a
+// miss or failure leaves the current location intact and is reported via onError.
+// Returns true once a switch is committed, false otherwise (the menu caller closes
+// the menu only on true).
+async function searchLocation(query, { onError = () => {} } = {}) {
+  const trimmed = (query || '').trim();
+  if (!trimmed) { onError('Enter a city or ZIP code.'); return false; }
   try {
     const matches = await geocode(trimmed);
     if (matches.length === 0) {
-      const hint = looksLikeZip(trimmed)
+      onError(looksLikeZip(trimmed)
         ? 'No US location found for that ZIP code.'
-        : 'No match — try "City, ST" (e.g. "Madison, WI") or a ZIP code.';
-      showSearchError(hint);
-      return;
+        : 'No match — try "City, ST" (e.g. "Madison, WI") or a ZIP code.');
+      return false;
     }
-
     const { name, lat, lon } = matches[0];
     const location = await resolveFromCoords(lat, lon, name);
 
-    // Resolve succeeded — now it's safe to commit the switch. A searched
-    // location is shown as Current-location-style (favoriteId null) until the
-    // user explicitly saves it, which makes "Add to favorites" appear.
-    closeSearch();
     showLocationLoading(`Loading weather for ${name}…`);
     clearLocationCache();
     persistLocation(location);
-    // If the search landed on a place already saved, show it as that favorite
-    // (active pill, no redundant "Add"); otherwise it's an unsaved location.
-    const existing = getFavorites(favStore).find(
-      (f) => f.forecastUrl === location.forecastUrl
-    );
+    const existing = getFavorites(favStore).find((f) => f.forecastUrl === location.forecastUrl);
     setDisplayed(location, existing ? existing.id : null);
     await fetchForecast(location, { primeNotifications: true });
-    // renderCurrent rebuilt the toggle, so focus was dropped to <body> — land
-    // it back on the (new) change button so keyboard users keep their place.
-    changeLocationButton()?.focus();
+    return true;
   } catch (err) {
     console.warn('Location search failed:', err);
-    showSearchError("Couldn't search right now. Check your connection and try again.");
-  } finally {
-    $searchInput.disabled = false;
+    onError("Couldn't search right now. Check your connection and try again.");
+    return false;
   }
 }
 
-$current.addEventListener('click', (event) => {
-  if (event.target.closest('.refresh-location')) {
-    refreshDisplayed();
-  } else if (event.target.closest('.change-location')) {
-    openSearch();
-  }
-});
+// ─── Favorites (saved locations + location menu) ───────────────────
 
-$search.addEventListener('submit', (event) => {
-  event.preventDefault();
-  searchLocation($searchInput.value);
-});
-
-$search.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') {
-    event.preventDefault();
-    closeSearch({ restoreFocus: true });
-  }
-});
-
-document.getElementById('location-search-cancel').addEventListener('click', () => {
-  closeSearch({ restoreFocus: true });
-});
-
-// ─── Favorites (saved locations + switcher) ───────────────────────
-
-const $switcher = document.getElementById('location-switcher');
+const PIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2.2"/></svg>';
+const STAR_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1" stroke-linejoin="round" aria-hidden="true"><polygon points="12,3 14.5,8.7 20.7,9.4 16,13.7 17.3,19.8 12,16.7 6.7,19.8 8,13.7 3.3,9.4 9.5,8.7"/></svg>';
 
 // The location currently on screen, kept so "Add to favorites" has the resolved
 // data (incl. lat/lon) to persist without a re-resolve. null until first render.
@@ -1110,7 +1042,7 @@ function setDisplayed(location, favoriteId) {
   } else {
     clearCurrentFavoriteId(favStore);
   }
-  renderSwitcher();
+  renderLocationMenu();
 }
 
 // A favorite is saveable only when we have its coords (a search/geolocation
@@ -1125,52 +1057,75 @@ function canSaveDisplayed() {
   return !already;
 }
 
-function homePill() {
-  const active = displayedFavoriteId === null;
-  return `
-    <button class="loc-pill${active ? ' loc-pill--active' : ''}" type="button"
-            data-home="true" aria-pressed="${active}">
-      <span class="loc-pill-pin" aria-hidden="true">📍</span><span class="loc-pill-label">Current location</span>
-    </button>
-  `;
+// The menu node is rebuilt inside .location on every renderCurrent, so query it
+// live (never cache) and delegate all listeners on the stable #current/document.
+const menuEl = () => document.getElementById('location-menu');
+const chipEl = () => $current.querySelector('.loc-chip');
+let menuSearchOpen = false; // menu showing its inline search sub-state
+
+function locationMenuItems() {
+  const homeActive = displayedFavoriteId === null;
+  const home = `<button class="loc-item${homeActive ? ' loc-item--active' : ''}" type="button" role="menuitem" data-home="true">
+      ${PIN_SVG}<span>Current location</span>${homeActive ? '<span class="check" aria-hidden="true">✓</span>' : ''}
+    </button>`;
+  const favs = getFavorites(favStore).map((f) => {
+    const active = f.id === displayedFavoriteId;
+    return `<button class="loc-item${active ? ' loc-item--active' : ''}" type="button" role="menuitem" data-favorite-id="${escapeHtml(f.id)}">
+        ${STAR_SVG}<span>${escapeHtml(f.label)}</span>
+        <span class="remove" role="button" tabindex="0" data-remove-id="${escapeHtml(f.id)}" aria-label="Remove ${escapeHtml(f.label)}">×</span>
+      </button>`;
+  }).join('');
+  const save = canSaveDisplayed()
+    ? `<button class="loc-item" type="button" role="menuitem" data-save="true">＋ Save this location</button>`
+    : '';
+  const search = `<button class="loc-item" type="button" role="menuitem" data-search="true">🔍 Search a place…</button>`;
+  return `${home}${favs}<div class="loc-menu-sep"></div>${search}${save}`;
 }
 
-function favoritePill(fav) {
-  const active = fav.id === displayedFavoriteId;
-  return `
-    <span class="loc-pill-group">
-      <button class="loc-pill${active ? ' loc-pill--active' : ''}" type="button"
-              data-favorite-id="${escapeHtml(fav.id)}" aria-pressed="${active}">
-        <span class="loc-pill-label">${escapeHtml(fav.label)}</span>
-      </button>
-      <button class="loc-pill-remove" type="button" data-remove-id="${escapeHtml(fav.id)}"
-              aria-label="Remove ${escapeHtml(fav.label)} from saved locations">×</button>
-    </span>
-  `;
+function searchSubState() {
+  return `<div class="loc-menu-search">
+      <input id="loc-menu-input" type="text" placeholder="City, ST or ZIP" autocomplete="off" aria-label="Search location">
+      <button id="loc-menu-go" type="button">Go</button>
+    </div>
+    <div class="loc-menu-hint">City, ST (e.g. "Madison, WI") or a ZIP works best · Esc to cancel</div>
+    <div class="loc-menu-error" id="loc-menu-error" hidden></div>`;
 }
 
-function addFavoriteButton() {
-  if (!canSaveDisplayed()) return '';
-  return `
-    <button class="loc-pill loc-pill--add" type="button" data-add-favorite="true">
-      + Add to favorites
-    </button>
-  `;
+function renderLocationMenu() {
+  const el = menuEl();
+  if (el) el.innerHTML = menuSearchOpen ? searchSubState() : locationMenuItems();
 }
 
-// Render the home entry + saved-favorite pills + the conditional add action.
-function renderSwitcher() {
-  // Show the switcher (with at least the Current-location pill) once a location
-  // is on screen, so favorites stay discoverable. Hidden only before first load.
-  if (!displayedLocation) {
-    $switcher.hidden = true;
-    $switcher.innerHTML = '';
-    return;
-  }
-  const favorites = getFavorites(favStore);
-  $switcher.innerHTML =
-    homePill() + favorites.map(favoritePill).join('') + addFavoriteButton();
-  $switcher.hidden = false;
+function openMenu() {
+  menuSearchOpen = false;
+  renderLocationMenu();
+  const el = menuEl();
+  if (!el) return;
+  el.hidden = false;
+  chipEl()?.setAttribute('aria-expanded', 'true');
+  el.querySelector('.loc-item, input')?.focus();
+}
+function closeMenu({ restoreFocus = false } = {}) {
+  const el = menuEl();
+  if (el) el.hidden = true;
+  menuSearchOpen = false;
+  const chip = chipEl();
+  chip?.setAttribute('aria-expanded', 'false');
+  if (restoreFocus) chip?.focus();
+}
+function menuOpen() { const el = menuEl(); return el && !el.hidden; }
+function openMenuSearch() {
+  menuSearchOpen = true;
+  renderLocationMenu();
+  document.getElementById('loc-menu-input')?.focus();
+}
+async function runMenuSearch() {
+  const input = document.getElementById('loc-menu-input');
+  if (!input) return;
+  const ok = await searchLocation(input.value, {
+    onError: (msg) => { const e = document.getElementById('loc-menu-error'); if (e) { e.textContent = msg; e.hidden = false; } },
+  });
+  if (ok) closeMenu();
 }
 
 // Switch to a saved favorite. Reuses the NEAT-58 resolve-then-commit discipline:
@@ -1216,28 +1171,35 @@ function removeDisplayedFavorite(id) {
   if (wasShowing) {
     switchToCurrentLocation();
   } else {
-    renderSwitcher();
+    renderLocationMenu();
   }
 }
 
-$switcher.addEventListener('click', (event) => {
-  const removeBtn = event.target.closest('[data-remove-id]');
-  if (removeBtn) {
-    removeDisplayedFavorite(removeBtn.dataset.removeId);
-    return;
-  }
-  if (event.target.closest('[data-add-favorite]')) {
-    saveDisplayedAsFavorite();
-    return;
-  }
-  if (event.target.closest('[data-home]')) {
-    if (displayedFavoriteId !== null) switchToCurrentLocation();
-    return;
-  }
-  const favBtn = event.target.closest('[data-favorite-id]');
-  if (favBtn && favBtn.dataset.favoriteId !== displayedFavoriteId) {
-    switchToFavorite(favBtn.dataset.favoriteId);
-  }
+// All click handling delegated on the stable #current section.
+$current.addEventListener('click', (event) => {
+  if (event.target.closest('.refresh-location')) { refreshDisplayed(); return; }
+  if (event.target.closest('.loc-chip')) { menuOpen() ? closeMenu() : openMenu(); return; }
+
+  // menu items (only fire when the click is inside the menu)
+  if (!event.target.closest('#location-menu')) return;
+  const remove = event.target.closest('[data-remove-id]');
+  if (remove) { event.stopPropagation(); removeDisplayedFavorite(remove.dataset.removeId); renderLocationMenu(); return; }
+  if (event.target.closest('[data-search]')) { openMenuSearch(); return; }
+  if (event.target.closest('#loc-menu-go')) { runMenuSearch(); return; }
+  if (event.target.closest('[data-save]')) { saveDisplayedAsFavorite(); closeMenu(); return; }
+  if (event.target.closest('[data-home]')) { if (displayedFavoriteId !== null) switchToCurrentLocation(); closeMenu(); return; }
+  const fav = event.target.closest('[data-favorite-id]');
+  if (fav && fav.dataset.favoriteId !== displayedFavoriteId) { switchToFavorite(fav.dataset.favoriteId); closeMenu(); }
+});
+
+$current.addEventListener('keydown', (event) => {
+  if (!event.target.closest('#location-menu')) return;
+  if (event.key === 'Enter' && event.target.id === 'loc-menu-input') { event.preventDefault(); runMenuSearch(); }
+  else if (event.key === 'Escape') { event.preventDefault(); menuSearchOpen ? openMenu() : closeMenu({ restoreFocus: true }); }
+});
+
+document.addEventListener('click', (event) => {
+  if (menuOpen() && !event.target.closest('.location')) closeMenu();
 });
 
 // ─── Boot ─────────────────────────────────────────────────────────
