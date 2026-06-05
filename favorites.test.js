@@ -20,6 +20,8 @@ import {
   clearCurrentFavoriteId,
   favoriteToLocation,
   locationToFavorite,
+  findFavoriteByForecastUrl,
+  isFavorited,
 } from './favorites.js';
 
 // ─── A minimal localStorage-shaped fake ──────────────────────────
@@ -150,6 +152,51 @@ test('findFavorite: an unknown id returns null', () => {
   addFavorite(store, MADISON);
   assert.equal(findFavorite(store, 'nope'), null);
   assert.equal(findFavorite(store, null), null);
+});
+
+// ─── findFavoriteByForecastUrl / isFavorited — the identity predicate ─
+
+test('findFavoriteByForecastUrl: returns the favorite whose forecastUrl matches', () => {
+  const store = fakeStore();
+  addFavorite(store, MADISON);
+  const denver = addFavorite(store, DENVER);
+  const found = findFavoriteByForecastUrl(store, DENVER.forecastUrl);
+  assert.equal(found.id, denver.id);
+  assert.equal(found.label, 'Denver, CO');
+});
+
+test('findFavoriteByForecastUrl: no match returns null', () => {
+  const store = fakeStore();
+  addFavorite(store, MADISON);
+  assert.equal(findFavoriteByForecastUrl(store, DENVER.forecastUrl), null);
+});
+
+test('findFavoriteByForecastUrl: empty store returns null', () => {
+  assert.equal(findFavoriteByForecastUrl(fakeStore(), MADISON.forecastUrl), null);
+});
+
+test('findFavoriteByForecastUrl: malformed store returns null, not a throw', () => {
+  const store = fakeStore({ [FAVORITES_KEY]: '{not json' });
+  assert.equal(findFavoriteByForecastUrl(store, MADISON.forecastUrl), null);
+});
+
+test('findFavoriteByForecastUrl: a falsy url returns null (no accidental match)', () => {
+  const store = fakeStore();
+  addFavorite(store, MADISON);
+  assert.equal(findFavoriteByForecastUrl(store, undefined), null);
+  assert.equal(findFavoriteByForecastUrl(store, ''), null);
+  assert.equal(findFavoriteByForecastUrl(store, null), null);
+});
+
+test('isFavorited: true when a favorite has that forecastUrl, false otherwise', () => {
+  const store = fakeStore();
+  addFavorite(store, MADISON);
+  assert.equal(isFavorited(store, MADISON.forecastUrl), true);
+  assert.equal(isFavorited(store, DENVER.forecastUrl), false);
+});
+
+test('isFavorited: empty store is always false', () => {
+  assert.equal(isFavorited(fakeStore(), MADISON.forecastUrl), false);
 });
 
 // ─── removeFavorite ──────────────────────────────────────────────

@@ -24,12 +24,14 @@ import {
   primeSeenIds,
   resetSeenIds,
 } from './notifications.js';
-import { geocode, looksLikeZip, shortLocationName } from './geocode.js';
+import { geocode, looksLikeZip } from './geocode.js';
 import {
   getFavorites,
   addFavorite,
   removeFavorite,
   findFavorite,
+  findFavoriteByForecastUrl,
+  isFavorited,
   getCurrentFavoriteId,
   setCurrentFavoriteId,
   clearCurrentFavoriteId,
@@ -1032,7 +1034,7 @@ async function searchLocation(query, { onError = () => {} } = {}) {
     clearLocationCache();
     // If the searched place is already saved, show the FAVORITE's stored data
     // (its custom label/station) rather than the bare geocode name.
-    const existing = getFavorites(favStore).find((f) => f.forecastUrl === location.forecastUrl);
+    const existing = findFavoriteByForecastUrl(favStore, location.forecastUrl);
     const displayLocation = existing ? favoriteToLocation(existing) : location;
     persistLocation(displayLocation);
     setDisplayed(displayLocation, existing ? existing.id : null);
@@ -1076,10 +1078,7 @@ function updateChipIcon() {
 function canSaveDisplayed() {
   if (!displayedLocation || displayedFavoriteId) return false;
   if (!Number.isFinite(displayedLocation.lat) || !Number.isFinite(displayedLocation.lon)) return false;
-  const already = getFavorites(favStore).some(
-    (f) => f.forecastUrl === displayedLocation.forecastUrl
-  );
-  return !already;
+  return !isFavorited(favStore, displayedLocation.forecastUrl);
 }
 
 // The menu node is rebuilt inside .location on every renderCurrent, so query it

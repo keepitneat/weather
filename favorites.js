@@ -75,16 +75,28 @@ export function locationToFavorite(location, { id, label } = {}) {
   };
 }
 
+// The favorite-identity rule, in one place: two locations are the same saved
+// favorite iff their forecastUrl (the stable per-gridpoint identity) matches.
+// Shared by addFavorite's dedupe and app.js's "already saved?" checks so the
+// rule can't drift between call sites.
+export function findFavoriteByForecastUrl(store, forecastUrl) {
+  if (!forecastUrl) return null;
+  return getFavorites(store).find((f) => f.forecastUrl === forecastUrl) ?? null;
+}
+
+export function isFavorited(store, forecastUrl) {
+  return findFavoriteByForecastUrl(store, forecastUrl) !== null;
+}
+
 // Save a resolved location as a favorite. Dedupes by forecastUrl (the stable
 // per-gridpoint identity) so re-adding the same place returns the existing
 // favorite instead of stacking duplicates. Returns the favorite either way.
 export function addFavorite(store, location, { label } = {}) {
-  const favorites = getFavorites(store);
-  const existing = favorites.find((f) => f.forecastUrl === location.forecastUrl);
+  const existing = findFavoriteByForecastUrl(store, location.forecastUrl);
   if (existing) return existing;
 
   const favorite = locationToFavorite(location, { id: generateId(), label });
-  writeFavorites(store, [...favorites, favorite]);
+  writeFavorites(store, [...getFavorites(store), favorite]);
   return favorite;
 }
 
