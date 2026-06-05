@@ -6,7 +6,7 @@
 import { iconFor, alertIconFor, THEME_ICONS, UI_ICONS } from './icons.js';
 import { chipMarkup, menuMarkup, searchMarkup } from './location-menu.js';
 import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
-import { titleCase } from './format.js';
+import { titleCase, shortStationName } from './format.js';
 import { normalizeTheme, themeAttr } from './theme.js';
 import {
   isIosSafari,
@@ -582,14 +582,6 @@ function render({ periods, hourlyPeriods, observation, alerts, locationName, sta
   renderForecast({ futureDaytime, hourlyPeriods });
   renderStatus(fromCache);
   document.body.classList.remove('is-switching'); // new content painted — undim
-}
-
-// Trim a long NWS station name to its first comma-segment, capped, so the
-// observed line stays one tidy line.
-function shortStationName(name) {
-  if (!name) return '';
-  const first = String(name).split(',')[0].trim();
-  return first.length > 28 ? `${first.slice(0, 27).trimEnd()}…` : first;
 }
 
 // ─── Location chip icons + displayed-location state ────────────────
