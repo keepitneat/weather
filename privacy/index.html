@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy · Just the Weather</title>
+  <meta name="description" content="How we use your data: we don't.">
+  <meta name="theme-color" content="#047857">
+  <link rel="icon" type="image/svg+xml" href="/icons/favicon.svg">
+  <!-- Apply saved theme before CSS loads, matching the app (no flash). -->
+  <script>
+    (function () {
+      var saved = localStorage.getItem('theme');
+      if (saved && saved !== 'system') document.documentElement.setAttribute('data-theme', saved);
+    })();
+  </script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="privacy">
+    <p><a class="privacy-back" href="/">← Just the Weather</a></p>
+
+    <h1>How we use your data</h1>
+    <p class="privacy-hero">We don't.</p>
+
+    <p>No account, no tracking, no analytics, no ads. Your favorites and settings stay in your browser, on your device.</p>
+
+    <p class="privacy-caveat">The one honest caveat: to fetch the forecast, your location is sent to the
+      <a href="https://www.weather.gov" target="_blank" rel="noopener noreferrer">National Weather Service</a>,
+      and when you search a place it's sent to
+      <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap</a>.
+      They need it to do their job — neither tracks you, and we never see it.</p>
+
+    <p class="privacy-note">Weather data comes from the NWS, provided as-is — don't rely on it for life-safety decisions.</p>
+  </main>
+
+  <footer>
+    <p>Part of the <a href="https://keepitneat.app">Keep It Neat</a> series.</p>
+    <p>No ads. No tracking. <a href="https://github.com/keepitneat/weather">Source on GitHub</a>.</p>
+  </footer>
+</body>
+</html>
