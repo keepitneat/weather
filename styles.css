@@ -735,3 +735,38 @@ footer a {
 footer a:hover {
   text-decoration: underline;
 }
+
+/* ─── Privacy page (/privacy/) ─────────────────────────────── */
+
+.privacy {
+  max-width: 36rem;
+  margin: 0 auto;
+  padding: 1rem 0 2rem;
+}
+
+.privacy-back {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.875rem;
+}
+.privacy-back:hover { color: var(--accent); }
+
+.privacy h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin: 1.75rem 0 0;
+}
+
+.privacy-hero {
+  font-size: 2.75rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+  margin: 0.25rem 0 1.5rem;
+}
+
+.privacy p { line-height: 1.65; margin-bottom: 1rem; }
+.privacy a { color: var(--accent); }
+.privacy-caveat { font-style: italic; color: var(--text-muted); }
+.privacy-note { font-size: 0.875rem; color: var(--text-muted); }
