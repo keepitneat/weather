@@ -5,7 +5,7 @@
 
 import { iconFor, alertIconFor, THEME_ICONS, UI_ICONS } from './icons.js';
 import { chipMarkup, menuMarkup, searchMarkup } from './location-menu.js';
-import { normalizeAlerts, formatExpiry, formatExpiryExact } from './alerts.js';
+import { normalizeAlerts, formatExpiry, formatExpiryExact, reflowAlertText } from './alerts.js';
 import { titleCase, shortStationName } from './format.js';
 import { normalizeTheme, themeAttr } from './theme.js';
 import {
@@ -680,7 +680,7 @@ function alertBanner(alert) {
     ? `<p class="alert-headline">${escapeHtml(alert.headline)}</p>`
     : '';
   const description = alert.description
-    ? `<p class="alert-description">${escapeHtml(alert.description)}</p>`
+    ? `<p class="alert-description">${escapeHtml(reflowAlertText(alert.description))}</p>`
     : '';
   const link = alert.url
     ? `<a class="alert-link" href="${escapeHtml(alert.url)}" target="_blank" rel="noopener noreferrer">View full alert ↗</a>`

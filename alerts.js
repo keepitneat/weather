@@ -44,6 +44,26 @@ export function formatExpiryExact(iso) {
   });
 }
 
+// NWS hard-wraps `description` at ~70 cols with single \n. Collapse those cosmetic
+// single newlines to spaces, but KEEP blank-line (\n\n) paragraph breaks AND the
+// single \n before a bullet/sub-item line (* / -), so the WHAT/WHERE/WHEN sections
+// and dash sub-items stay on their own lines.
+export function reflowAlertText(text) {
+  if (!text) return '';
+  const PARA = ''; // sentinel: meaningful paragraph break
+  const LINE = ''; // sentinel: meaningful bullet/sub-item break
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{2,}/g, PARA) // protect paragraph breaks
+    .replace(/\n(?=\s*[*-]\s)/g, LINE) // protect break before a * / - bullet line
+    .replace(/\n/g, ' ') // collapse remaining single newlines
+    .replace(new RegExp(PARA, 'g'), '\n\n')
+    .replace(new RegExp(LINE, 'g'), '\n')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ *\n */g, '\n') // trim spaces around the kept breaks
+    .trim();
+}
+
 // Content-stable fallback id for alerts NWS doesn't tag. A positional
 // `alert-${index}` would make the seen-id dedup track array position, not
 // identity; hashing the identifying fields keeps the id tied to content.

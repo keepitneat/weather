@@ -7,6 +7,7 @@ import {
   formatExpiry,
   formatExpiryExact,
   normalizeAlerts,
+  reflowAlertText,
   ALERT_SEVERITIES,
 } from './alerts.js';
 
@@ -206,6 +207,55 @@ test('normalizeAlerts: different alert content yields different stable ids', () 
   const [alertA] = normalizeAlerts(a);
   const [alertB] = normalizeAlerts(b);
   assert.notEqual(alertA.id, alertB.id);
+});
+
+// ─── reflowAlertText ─────────────────────────────────────────────
+
+test('reflowAlertText: collapses a single mid-sentence newline to a space', () => {
+  assert.equal(reflowAlertText('east central\nWisconsin'), 'east central Wisconsin');
+});
+
+test('reflowAlertText: preserves a blank-line paragraph break', () => {
+  assert.equal(reflowAlertText('A.\n\nB.'), 'A.\n\nB.');
+});
+
+test('reflowAlertText: collapses 3+ newlines to a single paragraph break', () => {
+  assert.equal(reflowAlertText('A.\n\n\nB.'), 'A.\n\nB.');
+});
+
+test('reflowAlertText: normalizes CRLF', () => {
+  assert.equal(reflowAlertText('a\r\nb'), 'a b');
+});
+
+test('reflowAlertText: empty / undefined yield empty string', () => {
+  assert.equal(reflowAlertText(''), '');
+  assert.equal(reflowAlertText(undefined), '');
+  assert.equal(reflowAlertText(null), '');
+});
+
+test('reflowAlertText: keeps * bullet lines on their own line', () => {
+  assert.equal(
+    reflowAlertText('intro text\n* WHAT...rain\n* WHERE...here'),
+    'intro text\n* WHAT...rain\n* WHERE...here',
+  );
+});
+
+test('reflowAlertText: keeps a - sub-item line on its own line', () => {
+  assert.equal(
+    reflowAlertText('this\nevening.\n- http://x'),
+    'this evening.\n- http://x',
+  );
+});
+
+test('reflowAlertText: still reflows the wrapped sentence inside a bullet', () => {
+  assert.equal(
+    reflowAlertText('* WHAT...Heavy rain expected across\neast central Wisconsin'),
+    '* WHAT...Heavy rain expected across east central Wisconsin',
+  );
+});
+
+test('reflowAlertText: tidies doubled spaces to one', () => {
+  assert.equal(reflowAlertText('a  b'), 'a b');
 });
 
 test('normalizeAlerts: stable fallback id is independent of position', () => {
